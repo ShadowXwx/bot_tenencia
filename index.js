@@ -10,18 +10,15 @@ const GROQ_API_KEY = "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";
 // ==========================================
 // FUNCIONES DE AYUDA (HELPERS)
 // ==========================================
-
-// 1. Extrae el nombre correctamente, sin importar cómo lo envíe Dialogflow
 const formatearNombre = (paramNombre) => {
     if (!paramNombre) return "Ciudadano";
     return typeof paramNombre === 'object' ? (paramNombre.name || "Ciudadano") : paramNombre;
 };
 
-// 2. Genera el bloque de memoria para guardar en Dialogflow y no repetir código
 const generarMemoria = (session, nombre, placa) => {
     return [{
         name: `${session}/contexts/memoria_usuario`,
-        lifespanCount: 50,
+        lifespanCount: 50, // La memoria dura 50 turnos de conversación
         parameters: { nombre, placa }
     }];
 };
@@ -29,8 +26,6 @@ const generarMemoria = (session, nombre, placa) => {
 // ==========================================
 // RUTAS DEL SERVIDOR
 // ==========================================
-
-// Health Check
 app.get('/', (req, res) => res.send('Servidor del Bot Vehicular Activo ✅'));
 
 app.post('/webhook', async (req, res) => {
@@ -42,16 +37,29 @@ app.post('/webhook', async (req, res) => {
 
         console.log("🔥 Intent detectado:", intentName);
 
-        // --- EXTRACCIÓN DE MEMORIA GLOBAL ---
+        // --- EXTRACCIÓN DE MEMORIA GLOBAL (VERSIÓN BLINDADA) ---
         let nombreUsuario = "Ciudadano";
-        let placaGlobal = parametros.placa; // Intenta tomarla de lo que acaba de decir el usuario
+        let placaGlobal = null;
+
+        // Función para evitar que Dialogflow nos engañe con arreglos vacíos o nulos
+        const extraerDato = (dato) => {
+            if (!dato) return null;
+            if (typeof dato === 'string' && dato.trim() !== '') return dato.trim();
+            if (Array.isArray(dato) && dato.length > 0) return dato[0];
+            return null;
+        };
+
+        // 1. Intentamos sacar la placa del mensaje actual
+        placaGlobal = extraerDato(parametros.placa);
         
+        // 2. Buscamos en la memoria a largo plazo
         const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
         if (memoria && memoria.parameters) {
-            nombreUsuario = formatearNombre(memoria.parameters.nombre);
-            // Si el usuario no dijo la placa ahorita, la sacamos de la memoria
-            if (!placaGlobal && memoria.parameters.placa) {
-                placaGlobal = memoria.parameters.placa;
+            nombreUsuario = formatearNombre(memoria.parameters.nombre) || "Ciudadano";
+            
+            // Si en el mensaje actual NO hay placa, la rescatamos obligatoriamente de la memoria
+            if (!placaGlobal) {
+                placaGlobal = extraerDato(memoria.parameters.placa);
             }
         }
 
@@ -72,7 +80,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ------------------------------------------
-            // X. SALIR / CERRAR SESIÓN (NUEVO INTENT)
+            // X. SALIR / CERRAR SESIÓN (OLVIDAR PLACA)
             // ------------------------------------------
             case 'salir':
             case 'despedida': {
