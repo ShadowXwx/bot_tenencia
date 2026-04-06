@@ -165,7 +165,13 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: `${nombreUsuario}, no encontré ninguna cita programada para la placa ${placaGlobal}. ❌` });
             }
 
-            const miCita = citaRes.data[citaRes.data.length - 1]; // Toma la más reciente
+            const miCita = citaRes.data[citaRes.data.length - 1];
+
+        // ESTA LÍNEA ES MAGIA PARA DEPURAR:
+        console.log("Objeto recibido de SheetDB:", JSON.stringify(miCita, null, 2));
+
+        return res.json({
+            fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍...`
 
             return res.json({
                 fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré una cita programada para tu vehículo:\n\n🆔 Folio: ${miCita.ID_Cita}\n📋 Trámite: ${miCita.Tipo_Tramite}\n📅 Fecha: ${miCita.Fecha_Cita}\n⏰ Hora: ${miCita.Hora_Cita} hrs\n📌 Estatus: ${miCita.Estatus}\n\n¿Deseas realizar alguna otra consulta? ✨`
