@@ -128,27 +128,34 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ------------------------------------------
-            // 4. CONSULTAR CITA EXISTENTE
+            // 4. CONSULTAR CITA EXISTENTE (MUESTRA TODAS)
             // ------------------------------------------
             case 'consultar_cita': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tu cita en el sistema. 🚗` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tus citas en el sistema. 🚗` });
 
                 const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
                 if (!citaRes.data || citaRes.data.length === 0) {
                     return res.json({ fulfillmentText: `${nombreUsuario}, no encontré ninguna cita programada para la placa ${placaGlobal}. ❌` });
                 }
 
-                const miCita = citaRes.data[citaRes.data.length - 1]; 
-                
-                // Respaldo por si hay variaciones de mayúsculas/minúsculas en el Excel
-                const folio = miCita.ID_Cita || miCita.id_cita || "No disponible";
-                const tramite = miCita.Tipo_Tramite || miCita.tipo_tramite || "No especificado";
-                const fecha = miCita.Fecha_Cita || miCita.fecha_cita || "Sin fecha";
-                const hora = miCita.Hora_Cita || miCita.hora_cita || "Sin hora";
-                const estatus = miCita.Estatus || miCita.estatus || "Pendiente";
+                // Armamos el inicio del mensaje
+                let mensajeCitas = `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré las siguientes citas para tu vehículo (${placaGlobal}):\n\n`;
+
+                // Recorremos TODAS las citas encontradas y las agregamos al mensaje
+                citaRes.data.forEach((cita, index) => {
+                    const folio = cita.ID_Cita || cita.id_cita || "No disponible";
+                    const tramite = cita.Tipo_Tramite || cita.tipo_tramite || "No especificado";
+                    const fecha = cita.Fecha_Cita || cita.fecha_cita || "Sin fecha";
+                    const hora = cita.Hora_Cita || cita.hora_cita || "Sin hora";
+                    const estatus = cita.Estatus || cita.estatus || "Pendiente";
+
+                    mensajeCitas += `📌 CITA ${index + 1}:\n🆔 Folio: ${folio}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n⚙️ Estatus: ${estatus}\n\n`;
+                });
+
+                mensajeCitas += `¿Deseas realizar alguna otra consulta? ✨`;
 
                 return res.json({
-                    fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré una cita programada para tu vehículo:\n\n🆔 Folio: ${folio}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n📌 Estatus: ${estatus}\n\n¿Deseas realizar alguna otra consulta? ✨`,
+                    fulfillmentText: mensajeCitas,
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
                 });
             }
