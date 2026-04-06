@@ -54,8 +54,13 @@ app.post('/webhook', async (req, res) => {
 
         return res.json({ fulfillmentText: "Aún no tengo configurada la acción para este trámite en mi sistema." });
 
-    } catch (error) {
-        console.error("Error en webhook:", error); 
+    }  catch (error) {
+        // Obligamos a Node.js a mostrar el objeto completo en formato de texto
+        if (error.response) {
+            console.error("Error de la API:", JSON.stringify(error.response.data, null, 2));
+        } else {
+            console.error("Error general:", error.message);
+        }
         return res.json({ fulfillmentText: "Hubo un problema de conexión con el sistema vehicular. Intenta de nuevo más tarde." });
     }
 });
