@@ -157,10 +157,16 @@ app.post('/webhook', async (req, res) => {
             const fecha = fechaRaw ? fechaRaw.split('T')[0] : "Sin fecha";
             const hora = horaRaw ? horaRaw.split('T')[1].substring(0, 5) : "Sin hora";
 
-            // 3. Guardar en Google Sheets vía SheetDB
+            // 3. Generar ID único y Fecha de Registro automática
+            const idCita = "CITA-" + Math.random().toString(36).substr(2, 4).toUpperCase();
+            const fechaRegistro = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+
+            // 4. Guardar en Google Sheets vía SheetDB
             try {
                 await axios.post(`${SHEETDB_URL}?sheet=Agenda_Citas`, {
                     data: [{
+                        ID_Cita: idCita,
+                        Fecha_Registro: fechaRegistro,
                         Nombre_Usuario: nombreUsuario,
                         Placa_Vehiculo: placa,
                         Tipo_Tramite: tramite,
@@ -170,9 +176,9 @@ app.post('/webhook', async (req, res) => {
                     }]
                 });
 
-                // 4. Respuesta confirmando la cita
+                // 5. Respuesta confirmando la cita
                 return res.json({
-                    fulfillmentText: `¡Excelente noticia, ${nombreUsuario}! ✅\n\nTu cita ha sido registrada exitosamente en nuestro sistema.\n\nRESUMEN DE TU CITA:\n🚗 Placa: ${placa}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n\nTe hemos enviado una confirmación. ¡Nos vemos pronto! ✨`,
+                    fulfillmentText: `¡Excelente noticia, ${nombreUsuario}! ✅\n\nTu cita ha sido registrada exitosamente en nuestro sistema con el folio ${idCita}.\n\nRESUMEN DE TU CITA:\n🚗 Placa: ${placa}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n\nTe hemos enviado una confirmación. ¡Nos vemos pronto! ✨`,
                     outputContexts: [
                         {
                             name: `${req.body.session}/contexts/memoria_usuario`,
