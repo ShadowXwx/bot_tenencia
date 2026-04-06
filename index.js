@@ -11,6 +11,10 @@ app.get('/', (req, res) => {
     res.send('Servidor del Bot Vehicular Activo y funcionando ✅');
 });
 
+app.get('/', (req, res) => {
+    res.send('Servidor del Bot Vehicular Activo y funcionando ✅');
+});
+
 app.post('/webhook', async (req, res) => {
     try {
         const intentName = req.body.queryResult.intent.displayName;
@@ -44,13 +48,11 @@ app.post('/webhook', async (req, res) => {
                 
             return res.json({
                 fulfillmentText: `¡Mucho gusto, ${nombreCapturado}! 👋✨\n\n¿En qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, ver tus citas agendadas o agendar una nueva. 🚗💨`,
-                outputContexts: [
-                    {
-                        name: `${req.body.session}/contexts/memoria_usuario`,
-                        lifespanCount: 50,
-                        parameters: { nombre: nombreCapturado }
-                    }
-                ]
+                outputContexts: [{
+                    name: `${req.body.session}/contexts/memoria_usuario`,
+                    lifespanCount: 50,
+                    parameters: { nombre: nombreCapturado }
+                }]
             });
         }
 
@@ -70,10 +72,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             const digito = parseInt(datosAuto.ultimo_digito);
-            const reglas = { 
-                5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 
-                3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" 
-            };
+            const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
             const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
             const prompt = `Eres un asistente oficial de trámites vehiculares. El usuario se llama ${nombreUsuario}.
@@ -84,14 +83,10 @@ app.post('/webhook', async (req, res) => {
                 model: "llama-3.1-8b-instant",
                 messages: [{ role: "user", content: prompt }]
             }, {
-                headers: { 
-                    'Authorization': `Bearer ${GROQ_API_KEY}`,
-                    'Content-Type': 'application/json'
-                }
+                headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' }
             });
 
-            let textoLimpio = aiRes.data.choices[0].message.content;
-            textoLimpio = textoLimpio.replace(/\*/g, ""); // Borrado total de asteriscos
+            let textoLimpio = aiRes.data.choices[0].message.content.replace(/\*/g, "");
 
             return res.json({
                 fulfillmentText: textoLimpio,
@@ -112,13 +107,9 @@ app.post('/webhook', async (req, res) => {
             }
 
             const tramite = parametros.tramite || "General";
-            const fechaRaw = parametros.date; 
-            const horaRaw = parametros.time;
+            const fecha = parametros.date ? parametros.date.split('T')[0] : "Sin fecha";
+            const hora = parametros.time ? parametros.time.split('T')[1].substring(0, 5) : "Sin hora";
 
-            const fecha = fechaRaw ? fechaRaw.split('T')[0] : "Sin fecha";
-            const hora = horaRaw ? horaRaw.split('T')[1].substring(0, 5) : "Sin hora";
-
-            // Generación de ID y Timestamp
             const idCita = "CITA-" + Math.random().toString(36).substr(2, 4).toUpperCase();
             const fechaReg = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
 
@@ -161,20 +152,24 @@ app.post('/webhook', async (req, res) => {
 
             const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
             
-            if (citaRes.data.length === 0) {
+            if (!citaRes.data || citaRes.data.length === 0) {
                 return res.json({ fulfillmentText: `${nombreUsuario}, no encontré ninguna cita programada para la placa ${placaGlobal}. ❌` });
             }
 
-            const miCita = citaRes.data[citaRes.data.length - 1];
+            const miCita = citaRes.data[citaRes.data.length - 1]; 
+            
+            // EL CHISME EN LA CONSOLA PARA DEPURAR (Aparecerá en los logs de tu servidor)
+            console.log("🔥 Objeto recibido de SheetDB:", JSON.stringify(miCita, null, 2));
 
-        // ESTA LÍNEA ES MAGIA PARA DEPURAR:
-        console.log("Objeto recibido de SheetDB:", JSON.stringify(miCita, null, 2));
-
-        return res.json({
-            fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍...`
+            // RESPALDO: Búsqueda flexible (Mayúsculas o minúsculas)
+            const folio = miCita.ID_Cita || miCita.id_cita || "No disponible";
+            const tramite = miCita.Tipo_Tramite || miCita.tipo_tramite || "No especificado";
+            const fecha = miCita.Fecha_Cita || miCita.fecha_cita || "Sin fecha";
+            const hora = miCita.Hora_Cita || miCita.hora_cita || "Sin hora";
+            const estatus = miCita.Estatus || miCita.estatus || "Pendiente";
 
             return res.json({
-                fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré una cita programada para tu vehículo:\n\n🆔 Folio: ${miCita.ID_Cita}\n📋 Trámite: ${miCita.Tipo_Tramite}\n📅 Fecha: ${miCita.Fecha_Cita}\n⏰ Hora: ${miCita.Hora_Cita} hrs\n📌 Estatus: ${miCita.Estatus}\n\n¿Deseas realizar alguna otra consulta? ✨`
+                fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré una cita programada para tu vehículo:\n\n🆔 Folio: ${folio}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n📌 Estatus: ${estatus}\n\n¿Deseas realizar alguna otra consulta? ✨`
             });
         }
 
@@ -189,6 +184,10 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor vial corriendo en el puerto ${PORT}`);
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor vial corriendo en el puerto ${PORT}`);
