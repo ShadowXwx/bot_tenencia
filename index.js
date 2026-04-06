@@ -16,13 +16,22 @@ app.post('/webhook', async (req, res) => {
         const intentName = req.body.queryResult.intent.displayName;
         const parametros = req.body.queryResult.parameters;
         
-        // --- NUEVO BLOQUE: Capturar y saludar por nombre ---
-        if (intentName === 'capturar_nombre') {
-            const nombre = parametros.nombre || "amigo"; // 'nombre' debe ser el parámetro en Dialogflow
+       if (intentName === 'capturar_nombre') {
+            // --- CORRECCIÓN: Extraer el nombre correctamente ---
+            let nombre = "amigo";
+            
+            if (parametros.nombre) {
+                // Si Dialogflow lo envió como objeto (ej. con @sys.person)
+                if (typeof parametros.nombre === 'object') {
+                    nombre = parametros.nombre.name || "amigo";
+                } else {
+                    // Si Dialogflow lo envió como texto plano (ej. con @sys.given-name)
+                    nombre = parametros.nombre;
+                }
+            }
             
             return res.json({
                 fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨ \n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que ahora dime: ¿en qué puedo ayudarte hoy? \n\nPuedo consultar tu tenencia, multas o ver cuándo no circulas. 🚗💨`,
-                // Esto asegura que el contexto 'memoria_usuario' se mantenga activo
                 outputContexts: [
                     {
                         name: `${req.body.session}/contexts/memoria_usuario`,
