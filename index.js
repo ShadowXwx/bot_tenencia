@@ -15,15 +15,14 @@ const formatearNombre = (paramNombre) => {
     return typeof paramNombre === 'object' ? (paramNombre.name || null) : paramNombre;
 };
 
-// TRUCO MAESTRO: Guardamos las variables con nombres distintos (nombre_guardado, placa_guardada)
-// para que los Intents de Dialogflow no las aplasten con valores vacíos.
+// Guardamos en variables blindadas
 const generarMemoria = (session, nombre, placa) => {
     return [{
         name: `${session}/contexts/memoria_usuario`,
         lifespanCount: 50,
         parameters: { 
-            nombre_guardado: nombre, 
-            placa_guardada: placa 
+            nombre_guardado: nombre || "Ciudadano", 
+            placa_guardada: placa || null
         }
     }];
 };
@@ -35,14 +34,19 @@ app.get('/', (req, res) => res.send('Servidor del Bot Vehicular Activo ✅'));
 
 app.post('/webhook', async (req, res) => {
     try {
+        // Validación de seguridad para que no colapse si Dialogflow manda algo vacío
+        if (!req.body || !req.body.queryResult) {
+            return res.status(400).send('Petición inválida');
+        }
+
         const intentName = req.body.queryResult.intent.displayName;
-        const parametros = req.body.queryResult.parameters;
+        const parametros = req.body.queryResult.parameters || {};
         const contextos = req.body.queryResult.outputContexts || [];
         const sesionActual = req.body.session;
 
         console.log("🔥 Intent detectado:", intentName);
 
-        // --- EXTRACCIÓN DE MEMORIA GLOBAL (VERSIÓN ACORAZADA) ---
+        // --- EXTRACCIÓN DE MEMORIA GLOBAL ---
         let nombreUsuario = "Ciudadano";
         let placaGlobal = null;
 
@@ -60,10 +64,7 @@ app.post('/webhook', async (req, res) => {
         // 2. Buscamos en el baúl blindado de memoria
         const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
         if (memoria && memoria.parameters) {
-            // Rescatamos el nombre seguro (o usamos el nuevo si nos lo acaban de dar)
             nombreUsuario = nombreTemporal || extraerDato(memoria.parameters.nombre_guardado) || "Ciudadano";
-            
-            // Rescatamos la placa segura
             if (!placaGlobal) {
                 placaGlobal = extraerDato(memoria.parameters.placa_guardada);
             }
@@ -80,8 +81,9 @@ app.post('/webhook', async (req, res) => {
             // 1. CAPTURAR NOMBRE Y PLACA INICIAL
             // ------------------------------------------
             case 'capturar_nombre': {
+                const placaMsj = placaGlobal ? `He guardado tu placa ${placaGlobal} en mi memoria.` : "Aún no tengo tu placa, pero me la puedes dar más adelante.";
                 return res.json({
-                    fulfillmentText: `¡Mucho gusto, ${nombreUsuario}! 👋✨\n\nHe guardado tu placa ${placaGlobal} en mi memoria.\n\n¿En qué puedo ayudarte hoy?\n(Tenencia, refrendo, multas, citas, o verificación) 🚗💨`,
+                    fulfillmentText: `¡Mucho gusto, ${nombreUsuario}! 👋✨\n\n${placaMsj}\n\n¿En qué puedo ayudarte hoy?\n(Tenencia, refrendo, multas, citas, o verificación) 🚗💨`,
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
                 });
             }
@@ -92,7 +94,7 @@ app.post('/webhook', async (req, res) => {
             case 'salir':
             case 'despedida': {
                 return res.json({
-                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tu placa de mi sistema de forma segura. Si necesitas consultar otro vehículo, solo escríbeme "Hola" de nuevo. ✨`,
+                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tus datos de mi sistema de forma segura. Si necesitas consultar de nuevo, solo escríbeme "Hola". ✨`,
                     outputContexts: [{
                         name: `${sesionActual}/contexts/memoria_usuario`,
                         lifespanCount: 0 // Borra la memoria
@@ -116,10 +118,9 @@ app.post('/webhook', async (req, res) => {
                     ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile explícitamente que NO debe pagar nada en este momento." 
                     : `Tiene un adeudo pendiente de ${adeudo}. Indícale amablemente que debe regularizar su pago.`;
                 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos.`;
 
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                const aiRes = await axios.post('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
@@ -139,10 +140,9 @@ app.post('/webhook', async (req, res) => {
                     ? "Está AL CORRIENTE con su refrendo, su saldo es $0.00. Felicítalo y dile explícitamente que NO tiene que hacer ningún pago." 
                     : `Tiene un adeudo de refrendo de ${adeudo}. Indícale que debe realizar el pago para obtener su refrendo.`;
                 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos.`;
 
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                const aiRes = await axios.post('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
@@ -162,10 +162,9 @@ app.post('/webhook', async (req, res) => {
                 const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
                 const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE del programa Hoy No Circula. Indica EXPLÍCITAMENTE esto: "Tu vehículo descansa el día ${diaNoCircula}". Redacta en 2 párrafos cortos, usa emojis (📅, 🛑), sin asteriscos. No des definiciones largas.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE del programa Hoy No Circula. Indica EXPLÍCITAMENTE esto: "Tu vehículo descansa el día ${diaNoCircula}". Redacta en 2 párrafos cortos, usa emojis (📅, 🛑), sin asteriscos. No des definiciones largas.`;
 
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                const aiRes = await axios.post('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
@@ -186,10 +185,9 @@ app.post('/webhook', async (req, res) => {
                     ? "No tiene ninguna infracción registrada en el sistema. Felicítalo por ser un excelente conductor." 
                     : `Tiene infracciones de tránsito por un total de ${multas}. Indícale amablemente que debe pagarlas para evitar recargos.`;
 
-                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
 
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                const aiRes = await axios.post('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
@@ -249,10 +247,9 @@ app.post('/webhook', async (req, res) => {
                     ? `El vehículo cuenta con holograma de verificación tipo '${holograma}'. Dile amablemente que está al corriente con sus emisiones vehiculares.` 
                     : `No hay registro de holograma vigente para este vehículo. Indícale que debe realizar su verificación vehicular lo antes posible para evitar multas ecológicas.`;
 
-                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE de la Verificación Vehicular (Emisiones contaminantes). INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. Redacta 2 párrafos cortos, usa emojis (🍃, 🚗), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de la Verificación Vehicular (Emisiones contaminantes). INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. Redacta 2 párrafos cortos, usa emojis (🍃, 🚗), sin asteriscos.`;
 
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                const aiRes = await axios.post('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
@@ -269,9 +266,6 @@ app.post('/webhook', async (req, res) => {
         return res.json({ fulfillmentText: "Hubo un problema procesando tu solicitud. Intenta de nuevo más tarde. 🔌" });
     }
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor vial corriendo en el puerto ${PORT}`));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Servidor vial corriendo en el puerto ${PORT}`));
