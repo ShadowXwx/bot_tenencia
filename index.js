@@ -4,7 +4,7 @@ const app = express();
 app.use(express.json());
 
 // Configuración de APIs (Cámbialas por tus llaves reales)
-const SHEETDB_URL = "https://sheetdb.io/api/v1/lfpxkwuhzmvmk";
+const SHEETDB_URL = "https://sheetdb.io/api/v1/n5w7uq6z7cy4m";
 const DEEPSEEK_API_KEY = "sk-c4cff4628b1c4bc5a7b2841078ac023e";
 
 app.get('/', (req, res) => {
