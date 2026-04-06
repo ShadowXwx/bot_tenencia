@@ -18,87 +18,68 @@ app.post('/webhook', async (req, res) => {
         const contextos = req.body.queryResult.outputContexts || [];
 
         // ==========================================
+        // EXTRACCIÓN DE MEMORIA GLOBAL
+        // ==========================================
+        let nombreUsuario = "Ciudadano";
+        let placaGlobal = parametros.placa;
+        
+        const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
+        if (memoria && memoria.parameters) {
+            nombreUsuario = (typeof memoria.parameters.nombre === 'object') 
+                ? (memoria.parameters.nombre.name || "Ciudadano") 
+                : (memoria.parameters.nombre || "Ciudadano");
+                
+            if (!placaGlobal && memoria.parameters.placa) {
+                placaGlobal = memoria.parameters.placa;
+            }
+        }
+
+        // ==========================================
         // INTENT 1: CAPTURAR Y RECORDAR NOMBRE
         // ==========================================
         if (intentName === 'capturar_nombre') {
-            let nombre = "ciudadano";
-            
-            if (parametros.nombre) {
-                if (typeof parametros.nombre === 'object') {
-                    nombre = parametros.nombre.name || "ciudadano";
-                } else {
-                    nombre = parametros.nombre;
-                }
-            }
-            
+            const nombreCapturado = (typeof parametros.nombre === 'object') 
+                ? (parametros.nombre.name || "ciudadano") 
+                : (parametros.nombre || "ciudadano");
+                
             return res.json({
-                fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨\n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que dime: ¿en qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, agendar una cita o ver cuándo no circulas. 🚗💨`,
+                fulfillmentText: `¡Mucho gusto, ${nombreCapturado}! 👋✨\n\n¿En qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, ver tus citas agendadas o agendar una nueva. 🚗💨`,
                 outputContexts: [
                     {
                         name: `${req.body.session}/contexts/memoria_usuario`,
                         lifespanCount: 50,
-                        parameters: { nombre: nombre }
+                        parameters: { nombre: nombreCapturado }
                     }
                 ]
             });
         }
 
         // ==========================================
-        // INTENT 2: CONSULTAR VEHÍCULO
+        // INTENT 2: CONSULTAR VEHÍCULO (TENENCIA)
         // ==========================================
         if (intentName === 'ConsultarVehiculo' || intentName === 'consulta_tenencia') {
-            
-            // 1. Revisar la memoria
-            let nombreUsuario = "Ciudadano";
-            let placa = parametros.placa;
-            
-            const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
-            if (memoria && memoria.parameters) {
-                if (memoria.parameters.nombre) {
-                    if (typeof memoria.parameters.nombre === 'object') {
-                        nombreUsuario = memoria.parameters.nombre.name || "Ciudadano";
-                    } else {
-                        nombreUsuario = memoria.parameters.nombre;
-                    }
-                }
-                if (!placa && memoria.parameters.placa) {
-                    placa = memoria.parameters.placa;
-                }
-            }
-
-            if (!placa) {
+            if (!placaGlobal) {
                 return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa? 🚗` });
             }
 
-            // 2. Consultar Base de Datos
-            const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placa}`);
+            const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
             const datosAuto = sheetRes.data[0];
 
             if (!datosAuto) {
-                return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placa} en el padrón vehicular. 🔎` });
+                return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón vehicular. 🔎` });
             }
 
-            // 3. Reglas de Negocio
             const digito = parseInt(datosAuto.ultimo_digito);
-            const reglas = {
+            const reglas = { 
                 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 
-                3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes"
+                3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" 
             };
-            const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") 
-                                 ? "Circula diario" : reglas[digito];
+            const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
-            // 4. Prompt Refactorizado (Más estricto con la IA)
             const prompt = `Eres un asistente oficial de trámites vehiculares. El usuario se llama ${nombreUsuario}.
-            Sus datos son: Placa ${placa}, Adeudo: ${datosAuto.adeudo_tenencia}, No circula: ${diaNoCircula}.
-            
-            REGLAS ESTRICTAS DE FORMATO (¡Obligatorias!):
-            1. Saluda al usuario por su nombre.
-            2. Redacta la respuesta en 3 párrafos cortos separados por dobles saltos de línea.
-            3. NO USES ASTERISCOS ni para negritas ni para listas.
-            4. Usa emojis (🚗, 💰, 📅).
-            5. Sé muy directo y amable.`;
+            Sus datos son: Placa ${placaGlobal}, Adeudo: ${datosAuto.adeudo_tenencia}, No circula: ${diaNoCircula}.
+            REGLAS: Saluda por su nombre, usa 3 párrafos cortos separados por dobles saltos de línea, usa emojis, NO uses asteriscos en lo absoluto.`;
 
-            // 5. Llamada a Groq
             const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                 model: "llama-3.1-8b-instant",
                 messages: [{ role: "user", content: prompt }]
@@ -109,66 +90,45 @@ app.post('/webhook', async (req, res) => {
                 }
             });
 
-            // 6. Limpieza final de la respuesta
             let textoLimpio = aiRes.data.choices[0].message.content;
-            textoLimpio = textoLimpio.replace(/\*\*/g, ""); // Borra todos los asteriscos dobles
-            textoLimpio = textoLimpio.replace(/\*/g, "");   // Borra todos los asteriscos simples
-            textoLimpio = textoLimpio.replace(/- /g, "• "); // Cambia guiones por viñetas elegantes
+            textoLimpio = textoLimpio.replace(/\*/g, ""); // Borrado total de asteriscos
 
             return res.json({
                 fulfillmentText: textoLimpio,
-                // Refrescamos la memoria con la placa
-                outputContexts: [
-                    {
-                        name: `${req.body.session}/contexts/memoria_usuario`,
-                        lifespanCount: 50,
-                        parameters: { nombre: nombreUsuario, placa: placa }
-                    }
-                ]
+                outputContexts: [{
+                    name: `${req.body.session}/contexts/memoria_usuario`,
+                    lifespanCount: 50,
+                    parameters: { nombre: nombreUsuario, placa: placaGlobal }
+                }]
             });
         }
 
         // ==========================================
-        // INTENT 3: AGENDAR CITA (Escritura en Sheets)
+        // INTENT 3: AGENDAR CITA
         // ==========================================
         if (intentName === 'agendar_cita') {
-            // 1. Extraer datos de la memoria (Nombre y Placa)
-            let nombreUsuario = "Ciudadano";
-            let placa = "No proporcionada";
-            
-            const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
-            if (memoria && memoria.parameters) {
-                if (memoria.parameters.nombre) {
-                    if (typeof memoria.parameters.nombre === 'object') {
-                        nombreUsuario = memoria.parameters.nombre.name || "Ciudadano";
-                    } else {
-                        nombreUsuario = memoria.parameters.nombre;
-                    }
-                }
-                placa = memoria.parameters.placa || "No proporcionada";
+            if (!placaGlobal) {
+                return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para poder agendar la cita. 🚗` });
             }
 
-            // 2. Extraer datos del Intent (Trámite, Fecha y Hora)
             const tramite = parametros.tramite || "General";
-            const fechaRaw = parametros.date; // Dialogflow manda la fecha en formato ISO
+            const fechaRaw = parametros.date; 
             const horaRaw = parametros.time;
 
-            // Limpiar fecha y hora para que se vean bien
             const fecha = fechaRaw ? fechaRaw.split('T')[0] : "Sin fecha";
             const hora = horaRaw ? horaRaw.split('T')[1].substring(0, 5) : "Sin hora";
 
-            // 3. Generar ID único y Fecha de Registro automática
+            // Generación de ID y Timestamp
             const idCita = "CITA-" + Math.random().toString(36).substr(2, 4).toUpperCase();
-            const fechaRegistro = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+            const fechaReg = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
 
-            // 4. Guardar en Google Sheets vía SheetDB
             try {
                 await axios.post(`${SHEETDB_URL}?sheet=Agenda_Citas`, {
                     data: [{
                         ID_Cita: idCita,
-                        Fecha_Registro: fechaRegistro,
+                        Fecha_Registro: fechaReg,
                         Nombre_Usuario: nombreUsuario,
-                        Placa_Vehiculo: placa,
+                        Placa_Vehiculo: placaGlobal,
                         Tipo_Tramite: tramite,
                         Fecha_Cita: fecha,
                         Hora_Cita: hora,
@@ -176,26 +136,44 @@ app.post('/webhook', async (req, res) => {
                     }]
                 });
 
-                // 5. Respuesta confirmando la cita
                 return res.json({
-                    fulfillmentText: `¡Excelente noticia, ${nombreUsuario}! ✅\n\nTu cita ha sido registrada exitosamente en nuestro sistema con el folio ${idCita}.\n\nRESUMEN DE TU CITA:\n🚗 Placa: ${placa}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n\nTe hemos enviado una confirmación. ¡Nos vemos pronto! ✨`,
-                    outputContexts: [
-                        {
-                            name: `${req.body.session}/contexts/memoria_usuario`,
-                            lifespanCount: 50,
-                            parameters: { nombre: nombreUsuario, placa: placa }
-                        }
-                    ]
+                    fulfillmentText: `¡Excelente noticia, ${nombreUsuario}! ✅\n\nTu cita quedó registrada exitosamente.\n\n🆔 Folio: ${idCita}\n🚗 Placa: ${placaGlobal}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n\n¡Nos vemos pronto! ✨`,
+                    outputContexts: [{
+                        name: `${req.body.session}/contexts/memoria_usuario`,
+                        lifespanCount: 50,
+                        parameters: { nombre: nombreUsuario, placa: placaGlobal }
+                    }]
                 });
 
             } catch (sheetError) {
-                console.error("Error al escribir en Sheets:", sheetError.message);
-                return res.json({ fulfillmentText: "Lo siento, tuve un problema al guardar tu cita en la base de datos. 🔌" });
+                console.error("Error SheetDB:", sheetError.message);
+                return res.json({ fulfillmentText: "Lo siento, tuve un problema al guardar tu cita. 🔌" });
             }
         }
 
         // ==========================================
-        // RESPUESTA POR DEFECTO (FALLBACK)
+        // INTENT 4: CONSULTAR CITA EXISTENTE
+        // ==========================================
+        if (intentName === 'consultar_cita') {
+            if (!placaGlobal) {
+                return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tu cita en el sistema. 🚗` });
+            }
+
+            const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
+            
+            if (citaRes.data.length === 0) {
+                return res.json({ fulfillmentText: `${nombreUsuario}, no encontré ninguna cita programada para la placa ${placaGlobal}. ❌` });
+            }
+
+            const miCita = citaRes.data[citaRes.data.length - 1]; // Toma la más reciente
+
+            return res.json({
+                fulfillmentText: `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré una cita programada para tu vehículo:\n\n🆔 Folio: ${miCita.ID_Cita}\n📋 Trámite: ${miCita.Tipo_Tramite}\n📅 Fecha: ${miCita.Fecha_Cita}\n⏰ Hora: ${miCita.Hora_Cita} hrs\n📌 Estatus: ${miCita.Estatus}\n\n¿Deseas realizar alguna otra consulta? ✨`
+            });
+        }
+
+        // ==========================================
+        // RESPUESTA POR DEFECTO
         // ==========================================
         return res.json({ fulfillmentText: "Aún no tengo configurada la acción para este trámite en mi sistema. ⚙️" });
 
@@ -206,7 +184,6 @@ app.post('/webhook', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor vial corriendo en el puerto ${PORT}`);
 });
