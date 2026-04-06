@@ -11,15 +11,20 @@ const GROQ_API_KEY = "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";
 // FUNCIONES DE AYUDA (HELPERS)
 // ==========================================
 const formatearNombre = (paramNombre) => {
-    if (!paramNombre) return "Ciudadano";
-    return typeof paramNombre === 'object' ? (paramNombre.name || "Ciudadano") : paramNombre;
+    if (!paramNombre) return null;
+    return typeof paramNombre === 'object' ? (paramNombre.name || null) : paramNombre;
 };
 
+// TRUCO MAESTRO: Guardamos las variables con nombres distintos (nombre_guardado, placa_guardada)
+// para que los Intents de Dialogflow no las aplasten con valores vacíos.
 const generarMemoria = (session, nombre, placa) => {
     return [{
         name: `${session}/contexts/memoria_usuario`,
-        lifespanCount: 50, // La memoria dura 50 turnos de conversación
-        parameters: { nombre, placa }
+        lifespanCount: 50,
+        parameters: { 
+            nombre_guardado: nombre, 
+            placa_guardada: placa 
+        }
     }];
 };
 
@@ -37,11 +42,10 @@ app.post('/webhook', async (req, res) => {
 
         console.log("🔥 Intent detectado:", intentName);
 
-        // --- EXTRACCIÓN DE MEMORIA GLOBAL (VERSIÓN BLINDADA) ---
+        // --- EXTRACCIÓN DE MEMORIA GLOBAL (VERSIÓN ACORAZADA) ---
         let nombreUsuario = "Ciudadano";
         let placaGlobal = null;
 
-        // Función para evitar que Dialogflow nos engañe con arreglos vacíos o nulos
         const extraerDato = (dato) => {
             if (!dato) return null;
             if (typeof dato === 'string' && dato.trim() !== '') return dato.trim();
@@ -49,18 +53,22 @@ app.post('/webhook', async (req, res) => {
             return null;
         };
 
-        // 1. Intentamos sacar la placa del mensaje actual
+        // 1. Intentamos sacar los datos del mensaje actual
         placaGlobal = extraerDato(parametros.placa);
+        let nombreTemporal = formatearNombre(parametros.nombre);
         
-        // 2. Buscamos en la memoria a largo plazo
+        // 2. Buscamos en el baúl blindado de memoria
         const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
         if (memoria && memoria.parameters) {
-            nombreUsuario = formatearNombre(memoria.parameters.nombre) || "Ciudadano";
+            // Rescatamos el nombre seguro (o usamos el nuevo si nos lo acaban de dar)
+            nombreUsuario = nombreTemporal || extraerDato(memoria.parameters.nombre_guardado) || "Ciudadano";
             
-            // Si en el mensaje actual NO hay placa, la rescatamos obligatoriamente de la memoria
+            // Rescatamos la placa segura
             if (!placaGlobal) {
-                placaGlobal = extraerDato(memoria.parameters.placa);
+                placaGlobal = extraerDato(memoria.parameters.placa_guardada);
             }
+        } else if (nombreTemporal) {
+            nombreUsuario = nombreTemporal;
         }
 
         // ==========================================
@@ -72,15 +80,14 @@ app.post('/webhook', async (req, res) => {
             // 1. CAPTURAR NOMBRE Y PLACA INICIAL
             // ------------------------------------------
             case 'capturar_nombre': {
-                const nombreNuevo = formatearNombre(parametros.nombre);
                 return res.json({
-                    fulfillmentText: `¡Mucho gusto, ${nombreNuevo}! 👋✨\n\nHe guardado tu placa ${placaGlobal} en mi memoria.\n\n¿En qué puedo ayudarte hoy?\n(Tenencia, refrendo, multas, citas, o hoy no circula) 🚗💨`,
-                    outputContexts: generarMemoria(sesionActual, nombreNuevo, placaGlobal)
+                    fulfillmentText: `¡Mucho gusto, ${nombreUsuario}! 👋✨\n\nHe guardado tu placa ${placaGlobal} en mi memoria.\n\n¿En qué puedo ayudarte hoy?\n(Tenencia, refrendo, multas, citas, o verificación) 🚗💨`,
+                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
                 });
             }
 
             // ------------------------------------------
-            // X. SALIR / CERRAR SESIÓN (OLVIDAR PLACA)
+            // X. SALIR / CERRAR SESIÓN
             // ------------------------------------------
             case 'salir':
             case 'despedida': {
@@ -88,7 +95,7 @@ app.post('/webhook', async (req, res) => {
                     fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tu placa de mi sistema de forma segura. Si necesitas consultar otro vehículo, solo escríbeme "Hola" de nuevo. ✨`,
                     outputContexts: [{
                         name: `${sesionActual}/contexts/memoria_usuario`,
-                        lifespanCount: 0 // ¡MAGIA! Esto mata la memoria instantáneamente
+                        lifespanCount: 0 // Borra la memoria
                     }]
                 });
             }
@@ -109,7 +116,7 @@ app.post('/webhook', async (req, res) => {
                     ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile explícitamente que NO debe pagar nada en este momento." 
                     : `Tiene un adeudo pendiente de ${adeudo}. Indícale amablemente que debe regularizar su pago.`;
                 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario} (NUNCA lo llames por su placa). Placa: ${placaGlobal}.
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
                 REGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
@@ -132,7 +139,7 @@ app.post('/webhook', async (req, res) => {
                     ? "Está AL CORRIENTE con su refrendo, su saldo es $0.00. Felicítalo y dile explícitamente que NO tiene que hacer ningún pago." 
                     : `Tiene un adeudo de refrendo de ${adeudo}. Indícale que debe realizar el pago para obtener su refrendo.`;
                 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario} (NUNCA lo llames por su placa). Placa: ${placaGlobal}.
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
                 REGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
@@ -262,6 +269,9 @@ app.post('/webhook', async (req, res) => {
         return res.json({ fulfillmentText: "Hubo un problema procesando tu solicitud. Intenta de nuevo más tarde. 🔌" });
     }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor vial corriendo en el puerto ${PORT}`));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Servidor vial corriendo en el puerto ${PORT}`));
