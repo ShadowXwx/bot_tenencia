@@ -40,6 +40,9 @@ app.post('/webhook', async (req, res) => {
         const contextos = req.body.queryResult.outputContexts || [];
         const sesionActual = req.body.session;
 
+        // Para debugear en tu consola de Render/Railway
+        console.log("🔥 Intent detectado:", intentName);
+
         // --- EXTRACCIÓN DE MEMORIA GLOBAL ---
         let nombreUsuario = "Ciudadano";
         let placaGlobal = parametros.placa;
@@ -55,7 +58,6 @@ app.post('/webhook', async (req, res) => {
         // ==========================================
         // LÓGICA DE INTENTS
         // ==========================================
-
         switch (intentName) {
             
             // ------------------------------------------
@@ -64,14 +66,17 @@ app.post('/webhook', async (req, res) => {
             case 'capturar_nombre': {
                 const nombreNuevo = formatearNombre(parametros.nombre);
                 return res.json({
-                    fulfillmentText: `¡Mucho gusto, ${nombreNuevo}! 👋✨\n\n¿En qué puedo ayudarte hoy?\nPuedo consultar tu tenencia, ver tus citas agendadas o agendar una nueva. 🚗💨`,
+                    fulfillmentText: `¡Mucho gusto, ${nombreNuevo}! 👋✨\n\n¿En qué puedo ayudarte hoy?\nPuedo consultar tu tenencia, multas, ver cuándo circulas, o revisar tus citas. 🚗💨`,
                     outputContexts: generarMemoria(sesionActual, nombreNuevo, placaGlobal)
                 });
             }
 
             // ------------------------------------------
-            // 2. CONSULTAR VEHÍCULO (TENENCIA)
+            // 2. CONSULTAR VEHÍCULO (TENENCIA Y CIRCULA)
             // ------------------------------------------
+            // ¡Apilamos los nombres! Pon aquí el nombre de tu Intent del Hoy No Circula si se llama diferente.
+            case 'hoy_no_circula':
+            case 'ConsultarCircula':
             case 'ConsultarVehiculo':
             case 'consulta_tenencia': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa? 🚗` });
@@ -86,7 +91,7 @@ app.post('/webhook', async (req, res) => {
                 const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
                 const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
-                const prompt = `Eres un asistente oficial de trámites vehiculares. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Adeudo: ${datosAuto.adeudo_tenencia}. No circula: ${diaNoCircula}. REGLAS: Saluda por su nombre, usa 3 párrafos cortos separados por dobles saltos de línea, usa emojis, NO uses asteriscos en lo absoluto.`;
+                const prompt = `Eres un asistente oficial de trámites vehiculares. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Adeudo: ${datosAuto.adeudo_tenencia}. No circula: ${diaNoCircula}. REGLAS: Saluda por su nombre, usa 3 párrafos cortos separados por saltos de línea, usa emojis, NO uses asteriscos. Responde de forma natural.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                     model: "llama-3.1-8b-instant",
@@ -102,7 +107,37 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ------------------------------------------
-            // 3. AGENDAR CITA
+            // 3. CONSULTAR MULTAS
+            // ------------------------------------------
+            case 'consultar_multas':
+            case 'ConsultarMultas': {
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para buscar tus infracciones? 🚓` });
+
+                const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
+                if (!sheetRes.data || sheetRes.data.length === 0) {
+                    return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón vehicular. 🔎` });
+                }
+
+                const datosAuto = sheetRes.data[0];
+                const adeudoMultas = datosAuto.multas || datosAuto.adeudo_multas || "Felicidades, no tienes multas registradas en este momento. ✅";
+
+                const prompt = `Eres un asistente oficial de trámites vehiculares. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Situación de multas: ${adeudoMultas}. REGLAS: Saluda por su nombre, redacta la respuesta en 2 o 3 párrafos cortos, usa emojis (🚓, 💸, ✅), NO uses asteriscos. Sé claro y directo.`;
+
+                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                    model: "llama-3.1-8b-instant",
+                    messages: [{ role: "user", content: prompt }]
+                }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+
+                const textoLimpio = aiRes.data.choices[0].message.content.replace(/\*/g, "");
+
+                return res.json({
+                    fulfillmentText: textoLimpio,
+                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
+                });
+            }
+
+            // ------------------------------------------
+            // 4. AGENDAR CITA
             // ------------------------------------------
             case 'agendar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para poder agendar la cita. 🚗` });
@@ -128,7 +163,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ------------------------------------------
-            // 4. CONSULTAR CITA EXISTENTE (MUESTRA TODAS)
+            // 5. CONSULTAR CITA EXISTENTE (MUESTRA TODAS)
             // ------------------------------------------
             case 'consultar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tus citas en el sistema. 🚗` });
@@ -138,10 +173,8 @@ app.post('/webhook', async (req, res) => {
                     return res.json({ fulfillmentText: `${nombreUsuario}, no encontré ninguna cita programada para la placa ${placaGlobal}. ❌` });
                 }
 
-                // Armamos el inicio del mensaje
                 let mensajeCitas = `¡Hola de nuevo, ${nombreUsuario}! 🔍\n\nEncontré las siguientes citas para tu vehículo (${placaGlobal}):\n\n`;
 
-                // Recorremos TODAS las citas encontradas y las agregamos al mensaje
                 citaRes.data.forEach((cita, index) => {
                     const folio = cita.ID_Cita || cita.id_cita || "No disponible";
                     const tramite = cita.Tipo_Tramite || cita.tipo_tramite || "No especificado";
@@ -159,48 +192,13 @@ app.post('/webhook', async (req, res) => {
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
                 });
             }
-                // ------------------------------------------
-            // 5. CONSULTAR MULTAS (NUEVO INTENT)
-            // ------------------------------------------
-            case 'consultar_multas': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para buscar tus infracciones? 🚓` });
-
-                // Buscamos en el padrón vehicular principal (primera pestaña de tu Excel)
-                const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
-                if (!sheetRes.data || sheetRes.data.length === 0) {
-                    return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón vehicular. 🔎` });
-                }
-
-                const datosAuto = sheetRes.data[0];
-                
-                // Aquí buscamos una columna en tu Excel que se llame 'multas' o 'adeudo_multas'
-                // Si la celda está vacía, diremos "Sin multas registradas"
-                const adeudoMultas = datosAuto.multas || datosAuto.adeudo_multas || "Felicidades, no tienes multas registradas en este momento. ✅";
-
-                // Le pedimos a la IA que redacte la respuesta
-                const prompt = `Eres un asistente oficial de trámites vehiculares. El usuario se llama ${nombreUsuario}.
-                Placa: ${placaGlobal}.
-                Situación de multas o infracciones: ${adeudoMultas}.
-                REGLAS: Saluda por su nombre, redacta la respuesta en 2 o 3 párrafos cortos, usa emojis (🚓, 💸, ✅), NO uses asteriscos en lo absoluto. Sé claro y directo.`;
-
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                    model: "llama-3.1-8b-instant",
-                    messages: [{ role: "user", content: prompt }]
-                }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
-
-                const textoLimpio = aiRes.data.choices[0].message.content.replace(/\*/g, "");
-
-                return res.json({
-                    fulfillmentText: textoLimpio,
-                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
-                });
-            }
 
             // ------------------------------------------
             // RESPUESTA POR DEFECTO
             // ------------------------------------------
             default:
-                return res.json({ fulfillmentText: "Aún no tengo configurada la acción para este trámite en mi sistema. ⚙️" });
+                // ¡El truco maestro! Aquí te chismeará el nombre exacto del intent si no lo encuentra.
+                return res.json({ fulfillmentText: `Aún no tengo configurada la acción para el trámite '${intentName}' en mi sistema. ⚙️` });
         }
 
     } catch (error) {
