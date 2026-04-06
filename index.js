@@ -37,11 +37,20 @@ app.post('/webhook', async (req, res) => {
                                  ? "Circula diario" 
                                  : reglas[digito];
 
-            const prompt = `Actúa como un asistente virtual oficial de trámites vehiculares en México. Un ciudadano pregunta por su auto. Placa: ${placa}. 
-                            Adeudo Tenencia: ${datosAuto.adeudo_tenencia}. 
-                            Días que no circula: ${diaNoCircula}. 
-                            Responde de forma amable, clara, breve y si tiene adeudo indícale que debe regularizarse en el portal oficial de finanzas.`;
+           const prompt = `Actúa como un asistente virtual oficial de trámites vehiculares en México. 
+            El usuario se llama: ${nombreUsuario}. ¡Salúdalo por su nombre!
 
+            Aquí están los datos de su vehículo:
+            - Placa: ${placa}
+            - Adeudo Tenencia: ${datosAuto.adeudo_tenencia}
+            - Días que no circula: ${diaNoCircula}
+
+            REGLAS ESTRICTAS DE FORMATO:
+            1. Usa saltos de línea (párrafos separados) para que la lectura sea muy limpia y no se vea amontonado.
+            2. Usa una lista con viñetas para mostrar los datos del vehículo.
+            3. Incluye emojis amigables y profesionales según el contexto (🚗, 📅, 💰, ✅, ⚠️, etc.).
+            4. Si tiene adeudo, indícale amablemente que debe regularizarse en el portal oficial de finanzas.
+            5. Sé breve, claro y servicial.`;
             // 3. Consulta a la IA (Corregido para usar GROQ)
             const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                model: "llama-3.1-8b-instant",
