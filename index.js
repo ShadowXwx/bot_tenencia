@@ -24,7 +24,6 @@ app.post('/webhook', async (req, res) => {
             let nombre = "ciudadano";
             
             if (parametros.nombre) {
-                // Maneja si Dialogflow manda el nombre como objeto o como texto plano
                 if (typeof parametros.nombre === 'object') {
                     nombre = parametros.nombre.name || "ciudadano";
                 } else {
@@ -33,7 +32,7 @@ app.post('/webhook', async (req, res) => {
             }
             
             return res.json({
-                fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨\n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que dime: ¿en qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, multas o ver cuándo no circulas. 🚗💨`,
+                fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨\n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que dime: ¿en qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, agendar una cita o ver cuándo no circulas. 🚗💨`,
                 outputContexts: [
                     {
                         name: `${req.body.session}/contexts/memoria_usuario`,
@@ -56,7 +55,6 @@ app.post('/webhook', async (req, res) => {
             const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
             if (memoria && memoria.parameters) {
                 if (memoria.parameters.nombre) {
-                    // Validar de nuevo si viene como objeto en la memoria
                     if (typeof memoria.parameters.nombre === 'object') {
                         nombreUsuario = memoria.parameters.nombre.name || "Ciudadano";
                     } else {
@@ -111,15 +109,83 @@ app.post('/webhook', async (req, res) => {
                 }
             });
 
-            // 6. Limpieza final de la respuesta (Por si la IA desobedece)
+            // 6. Limpieza final de la respuesta
             let textoLimpio = aiRes.data.choices[0].message.content;
             textoLimpio = textoLimpio.replace(/\*\*/g, ""); // Borra todos los asteriscos dobles
             textoLimpio = textoLimpio.replace(/\*/g, "");   // Borra todos los asteriscos simples
             textoLimpio = textoLimpio.replace(/- /g, "• "); // Cambia guiones por viñetas elegantes
 
             return res.json({
-                fulfillmentText: textoLimpio
+                fulfillmentText: textoLimpio,
+                // Refrescamos la memoria con la placa
+                outputContexts: [
+                    {
+                        name: `${req.body.session}/contexts/memoria_usuario`,
+                        lifespanCount: 50,
+                        parameters: { nombre: nombreUsuario, placa: placa }
+                    }
+                ]
             });
+        }
+
+        // ==========================================
+        // INTENT 3: AGENDAR CITA (Escritura en Sheets)
+        // ==========================================
+        if (intentName === 'agendar_cita') {
+            // 1. Extraer datos de la memoria (Nombre y Placa)
+            let nombreUsuario = "Ciudadano";
+            let placa = "No proporcionada";
+            
+            const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
+            if (memoria && memoria.parameters) {
+                if (memoria.parameters.nombre) {
+                    if (typeof memoria.parameters.nombre === 'object') {
+                        nombreUsuario = memoria.parameters.nombre.name || "Ciudadano";
+                    } else {
+                        nombreUsuario = memoria.parameters.nombre;
+                    }
+                }
+                placa = memoria.parameters.placa || "No proporcionada";
+            }
+
+            // 2. Extraer datos del Intent (Trámite, Fecha y Hora)
+            const tramite = parametros.tramite || "General";
+            const fechaRaw = parametros.date; // Dialogflow manda la fecha en formato ISO
+            const horaRaw = parametros.time;
+
+            // Limpiar fecha y hora para que se vean bien
+            const fecha = fechaRaw ? fechaRaw.split('T')[0] : "Sin fecha";
+            const hora = horaRaw ? horaRaw.split('T')[1].substring(0, 5) : "Sin hora";
+
+            // 3. Guardar en Google Sheets vía SheetDB
+            try {
+                await axios.post(`${SHEETDB_URL}?sheet=Agenda_Citas`, {
+                    data: [{
+                        Nombre_Usuario: nombreUsuario,
+                        Placa_Vehiculo: placa,
+                        Tipo_Tramite: tramite,
+                        Fecha_Cita: fecha,
+                        Hora_Cita: hora,
+                        Estatus: "Pendiente"
+                    }]
+                });
+
+                // 4. Respuesta confirmando la cita
+                return res.json({
+                    fulfillmentText: `¡Excelente noticia, ${nombreUsuario}! ✅\n\nTu cita ha sido registrada exitosamente en nuestro sistema.\n\nRESUMEN DE TU CITA:\n🚗 Placa: ${placa}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora} hrs\n\nTe hemos enviado una confirmación. ¡Nos vemos pronto! ✨`,
+                    outputContexts: [
+                        {
+                            name: `${req.body.session}/contexts/memoria_usuario`,
+                            lifespanCount: 50,
+                            parameters: { nombre: nombreUsuario, placa: placa }
+                        }
+                    ]
+                });
+
+            } catch (sheetError) {
+                console.error("Error al escribir en Sheets:", sheetError.message);
+                return res.json({ fulfillmentText: "Lo siento, tuve un problema al guardar tu cita en la base de datos. 🔌" });
+            }
         }
 
         // ==========================================
