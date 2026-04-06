@@ -15,23 +15,25 @@ app.post('/webhook', async (req, res) => {
     try {
         const intentName = req.body.queryResult.intent.displayName;
         const parametros = req.body.queryResult.parameters;
-        
-       if (intentName === 'capturar_nombre') {
-            // --- CORRECCIÓN: Extraer el nombre correctamente ---
-            let nombre = "amigo";
+        const contextos = req.body.queryResult.outputContexts || [];
+
+        // ==========================================
+        // INTENT 1: CAPTURAR Y RECORDAR NOMBRE
+        // ==========================================
+        if (intentName === 'capturar_nombre') {
+            let nombre = "ciudadano";
             
             if (parametros.nombre) {
-                // Si Dialogflow lo envió como objeto (ej. con @sys.person)
+                // Maneja si Dialogflow manda el nombre como objeto o como texto plano
                 if (typeof parametros.nombre === 'object') {
-                    nombre = parametros.nombre.name || "amigo";
+                    nombre = parametros.nombre.name || "ciudadano";
                 } else {
-                    // Si Dialogflow lo envió como texto plano (ej. con @sys.given-name)
                     nombre = parametros.nombre;
                 }
             }
             
             return res.json({
-                fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨ \n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que ahora dime: ¿en qué puedo ayudarte hoy? \n\nPuedo consultar tu tenencia, multas o ver cuándo no circulas. 🚗💨`,
+                fulfillmentText: `¡Mucho gusto, ${nombre}! 👋✨\n\nSoy tu asistente de trámites vehiculares. Ya te conozco, así que dime: ¿en qué puedo ayudarte hoy?\n\nPuedo consultar tu tenencia, multas o ver cuándo no circulas. 🚗💨`,
                 outputContexts: [
                     {
                         name: `${req.body.session}/contexts/memoria_usuario`,
@@ -41,33 +43,36 @@ app.post('/webhook', async (req, res) => {
                 ]
             });
         }
-        
+
+        // ==========================================
+        // INTENT 2: CONSULTAR VEHÍCULO
+        // ==========================================
         if (intentName === 'ConsultarVehiculo' || intentName === 'consulta_tenencia') {
             
-            // 1. EXTRAER MEMORIA (Buscar el contexto 'memoria_usuario')
-            let nombreUsuario = "Ciudadano"; // Valor por defecto por si no nos dio su nombre
+            // 1. Revisar la memoria
+            let nombreUsuario = "Ciudadano";
             let placa = parametros.placa;
             
-            const contextos = req.body.queryResult.outputContexts || [];
             const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
-            
             if (memoria && memoria.parameters) {
-                // Si el usuario nos dio su nombre antes, lo sacamos de la memoria
                 if (memoria.parameters.nombre) {
-                    nombreUsuario = memoria.parameters.nombre;
+                    // Validar de nuevo si viene como objeto en la memoria
+                    if (typeof memoria.parameters.nombre === 'object') {
+                        nombreUsuario = memoria.parameters.nombre.name || "Ciudadano";
+                    } else {
+                        nombreUsuario = memoria.parameters.nombre;
+                    }
                 }
-                // Si la placa venía vacía en este turno, pero está en la memoria, la rescatamos
                 if (!placa && memoria.parameters.placa) {
                     placa = memoria.parameters.placa;
                 }
             }
 
-            // Si a pesar de revisar la memoria seguimos sin placa, la pedimos
             if (!placa) {
                 return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa? 🚗` });
             }
 
-            // 2. Consultar a SheetDB
+            // 2. Consultar Base de Datos
             const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placa}`);
             const datosAuto = sheetRes.data[0];
 
@@ -75,7 +80,7 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placa} en el padrón vehicular. 🔎` });
             }
 
-            // 3. Lógica del Hoy No Circula
+            // 3. Reglas de Negocio
             const digito = parseInt(datosAuto.ultimo_digito);
             const reglas = {
                 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 
@@ -84,32 +89,18 @@ app.post('/webhook', async (req, res) => {
             const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") 
                                  ? "Circula diario" : reglas[digito];
 
-            // 4. Prompt mejorado con Emojis, Formato y Nombre del Usuario
-            const prompt = `Actúa como un asistente oficial de trámites vehiculares. 
-Usuario: ${nombreUsuario}
-Placa: ${placa}
-Adeudo: ${datosAuto.adeudo_tenencia}
-No circula: ${diaNoCircula}
+            // 4. Prompt Refactorizado (Más estricto con la IA)
+            const prompt = `Eres un asistente oficial de trámites vehiculares. El usuario se llama ${nombreUsuario}.
+            Sus datos son: Placa ${placa}, Adeudo: ${datosAuto.adeudo_tenencia}, No circula: ${diaNoCircula}.
+            
+            REGLAS ESTRICTAS DE FORMATO (¡Obligatorias!):
+            1. Saluda al usuario por su nombre.
+            2. Redacta la respuesta en 3 párrafos cortos separados por dobles saltos de línea.
+            3. NO USES ASTERISCOS ni para negritas ni para listas.
+            4. Usa emojis (🚗, 💰, 📅).
+            5. Sé muy directo y amable.`;
 
-REGLAS DE FORMATO CRÍTICAS Y OBLIGATORIAS:
-- DEBES usar un salto de línea (ENTER) después de cada oración. 
-- PROHIBIDO escribir todo en un solo bloque de texto.
-- PROHIBIDO usar asteriscos (**) para negritas.
-- Para las listas, usa guiones (-) en vez de asteriscos, y pon cada elemento en una línea nueva.
-- Usa emojis para que se vea amigable.
-- Sé muy breve y directo.`;
-
-            // 5. Consulta a Groq
-            const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                model: "llama-3.1-8b-instant",
-                messages: [{ role: "user", content: prompt }]
-            }, {
-                headers: { 
-                    'Authorization': `Bearer ${GROQ_API_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            // 5. Consulta a Groq
+            // 5. Llamada a Groq
             const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                 model: "llama-3.1-8b-instant",
                 messages: [{ role: "user", content: prompt }]
@@ -120,25 +111,25 @@ REGLAS DE FORMATO CRÍTICAS Y OBLIGATORIAS:
                 }
             });
 
-            // --- NUEVO: Limpiamos la respuesta de la IA ---
+            // 6. Limpieza final de la respuesta (Por si la IA desobedece)
             let textoLimpio = aiRes.data.choices[0].message.content;
-            
-            // Quitamos los asteriscos de las negritas (que Dialogflow no entiende)
-            textoLimpio = textoLimpio.replace(/\*\*/g, ""); 
-            
-            // Si la IA usó asteriscos para listas (*), los cambiamos por un guion y forzamos un salto de línea
-            textoLimpio = textoLimpio.replace(/ \*/g, "\n-");
+            textoLimpio = textoLimpio.replace(/\*\*/g, ""); // Borra todos los asteriscos dobles
+            textoLimpio = textoLimpio.replace(/\*/g, "");   // Borra todos los asteriscos simples
+            textoLimpio = textoLimpio.replace(/- /g, "• "); // Cambia guiones por viñetas elegantes
 
             return res.json({
                 fulfillmentText: textoLimpio
             });
         }
 
+        // ==========================================
+        // RESPUESTA POR DEFECTO (FALLBACK)
+        // ==========================================
         return res.json({ fulfillmentText: "Aún no tengo configurada la acción para este trámite en mi sistema. ⚙️" });
 
     } catch (error) {
-        console.error("Error general:", error.message);
-        return res.json({ fulfillmentText: "Hubo un problema de conexión con el sistema vehicular. Intenta de nuevo más tarde. 🔌" });
+        console.error("Error en Webhook:", error.message);
+        return res.json({ fulfillmentText: "Hubo un problema procesando tu solicitud. Intenta de nuevo más tarde. 🔌" });
     }
 });
 
