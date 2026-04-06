@@ -44,7 +44,7 @@ app.post('/webhook', async (req, res) => {
 
             // 3. Consulta a la IA (Corregido para usar GROQ)
             const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                model: "llama3-8b-8192", // Modelo gratuito de Groq
+               model: "llama-3.1-8b-instant",
                 messages: [{ role: "user", content: prompt }]
             }, {
                 headers: { 
