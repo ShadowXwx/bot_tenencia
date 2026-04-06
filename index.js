@@ -5,7 +5,7 @@ app.use(express.json());
 
 // Configuración de APIs (Cámbialas por tus llaves reales)
 const SHEETDB_URL = "https://sheetdb.io/api/v1/n5w7uq6z7cy4m";
-const DEEPSEEK_API_KEY = "sk-c4cff4628b1c4bc5a7b2841078ac023e";
+const GROQ_API_KEY = "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";
 
 app.get('/', (req, res) => {
     res.send('Servidor del Bot Vehicular Activo y funcionando ✅');
