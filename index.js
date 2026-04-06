@@ -80,10 +80,15 @@ app.post('/webhook', async (req, res) => {
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón. 🔎` });
 
-                const adeudo = sheetRes.data[0].adeudo_tenencia || "Sin adeudo";
+                const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
+                
+                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
+                const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
+                    ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile explícitamente que NO debe pagar nada en este momento." 
+                    : `Tiene un adeudo pendiente de ${adeudo}. Indícale amablemente que debe regularizar su pago.`;
                 
                 const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario} (NUNCA lo llames por su placa). Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. Su adeudo actual es: ${adeudo}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos. Sé directo y amable.`;
+                REGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
@@ -99,10 +104,15 @@ app.post('/webhook', async (req, res) => {
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
 
-                const adeudo = sheetRes.data[0].adeudo_tenencia || "Sin adeudo";
+                const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
+                
+                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
+                const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
+                    ? "Está AL CORRIENTE con su refrendo, su saldo es $0.00. Felicítalo y dile explícitamente que NO tiene que hacer ningún pago." 
+                    : `Tiene un adeudo de refrendo de ${adeudo}. Indícale que debe realizar el pago para obtener su refrendo.`;
                 
                 const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario} (NUNCA lo llames por su placa). Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. Su estatus de pago es: ${adeudo}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos. Confírmale su estatus de refrendo.`;
+                REGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
@@ -142,10 +152,15 @@ app.post('/webhook', async (req, res) => {
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
 
-                const multas = sheetRes.data[0].multas || sheetRes.data[0].adeudo_multas || "Sin infracciones pendientes. ✅";
+                const multas = sheetRes.data[0].multas || sheetRes.data[0].adeudo_multas || "$0.00";
+
+                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
+                const estadoMultas = (multas === "0" || multas === "$0.00" || multas.toLowerCase() === "sin multas" || multas.toLowerCase() === "sin adeudo") 
+                    ? "No tiene ninguna infracción registrada en el sistema. Felicítalo por ser un excelente conductor." 
+                    : `Tiene infracciones de tránsito por un total de ${multas}. Indícale amablemente que debe pagarlas para evitar recargos.`;
 
                 const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario} (NUNCA uses la placa como nombre). Placa: ${placaGlobal}.
-                REGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. Situación: ${multas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
+                REGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
