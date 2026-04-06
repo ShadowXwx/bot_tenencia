@@ -85,20 +85,19 @@ app.post('/webhook', async (req, res) => {
                                  ? "Circula diario" : reglas[digito];
 
             // 4. Prompt mejorado con Emojis, Formato y Nombre del Usuario
-            const prompt = `Actúa como un asistente virtual oficial de trámites vehiculares en México. 
-                            El usuario se llama: ${nombreUsuario}. ¡Salúdalo por su nombre!
+            const prompt = `Actúa como un asistente oficial de trámites vehiculares. 
+Usuario: ${nombreUsuario}
+Placa: ${placa}
+Adeudo: ${datosAuto.adeudo_tenencia}
+No circula: ${diaNoCircula}
 
-                            Datos del vehículo:
-                            - Placa: ${placa}
-                            - Adeudo Tenencia: ${datosAuto.adeudo_tenencia}
-                            - Días que no circula: ${diaNoCircula}
-
-                            REGLAS ESTRICTAS DE FORMATO:
-                            1. Usa saltos de línea (párrafos separados) para que la lectura sea limpia y no se vea amontonado.
-                            2. Usa una lista con viñetas para mostrar los datos del vehículo.
-                            3. Incluye emojis amigables y profesionales (🚗, 📅, 💰, ✅, ⚠️).
-                            4. Si tiene adeudo, indícale que debe regularizarse en el portal de finanzas.
-                            5. Sé amable y servicial.`;
+REGLAS DE FORMATO CRÍTICAS Y OBLIGATORIAS:
+- DEBES usar un salto de línea (ENTER) después de cada oración. 
+- PROHIBIDO escribir todo en un solo bloque de texto.
+- PROHIBIDO usar asteriscos (**) para negritas.
+- Para las listas, usa guiones (-) en vez de asteriscos, y pon cada elemento en una línea nueva.
+- Usa emojis para que se vea amigable.
+- Sé muy breve y directo.`;
 
             // 5. Consulta a Groq
             const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
@@ -110,9 +109,28 @@ app.post('/webhook', async (req, res) => {
                     'Content-Type': 'application/json'
                 }
             });
+            // 5. Consulta a Groq
+            const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "user", content: prompt }]
+            }, {
+                headers: { 
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // --- NUEVO: Limpiamos la respuesta de la IA ---
+            let textoLimpio = aiRes.data.choices[0].message.content;
+            
+            // Quitamos los asteriscos de las negritas (que Dialogflow no entiende)
+            textoLimpio = textoLimpio.replace(/\*\*/g, ""); 
+            
+            // Si la IA usó asteriscos para listas (*), los cambiamos por un guion y forzamos un salto de línea
+            textoLimpio = textoLimpio.replace(/ \*/g, "\n-");
 
             return res.json({
-                fulfillmentText: aiRes.data.choices[0].message.content
+                fulfillmentText: textoLimpio
             });
         }
 
