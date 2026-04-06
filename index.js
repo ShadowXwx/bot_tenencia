@@ -44,29 +44,44 @@ app.post('/webhook', async (req, res) => {
 
         // --- EXTRACCIÓN DE MEMORIA GLOBAL ---
         let nombreUsuario = "Ciudadano";
-        let placaGlobal = parametros.placa;
+        let placaGlobal = parametros.placa; // Intenta tomarla de lo que acaba de decir el usuario
         
         const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
         if (memoria && memoria.parameters) {
             nombreUsuario = formatearNombre(memoria.parameters.nombre);
+            // Si el usuario no dijo la placa ahorita, la sacamos de la memoria
             if (!placaGlobal && memoria.parameters.placa) {
                 placaGlobal = memoria.parameters.placa;
             }
         }
 
         // ==========================================
-        // LÓGICA DE INTENTS (SEPARADOS POR TRÁMITE)
+        // LÓGICA DE INTENTS
         // ==========================================
         switch (intentName) {
             
             // ------------------------------------------
-            // 1. CAPTURAR NOMBRE
+            // 1. CAPTURAR NOMBRE Y PLACA INICIAL
             // ------------------------------------------
             case 'capturar_nombre': {
                 const nombreNuevo = formatearNombre(parametros.nombre);
                 return res.json({
-                    fulfillmentText: `¡Mucho gusto, ${nombreNuevo}! 👋✨\n\n¿En qué puedo ayudarte hoy?\nPuedo consultar tu tenencia, refrendo, multas, ver cuándo circulas o revisar tus citas. 🚗💨`,
+                    fulfillmentText: `¡Mucho gusto, ${nombreNuevo}! 👋✨\n\nHe guardado tu placa ${placaGlobal} en mi memoria.\n\n¿En qué puedo ayudarte hoy?\n(Tenencia, refrendo, multas, citas, o hoy no circula) 🚗💨`,
                     outputContexts: generarMemoria(sesionActual, nombreNuevo, placaGlobal)
+                });
+            }
+
+            // ------------------------------------------
+            // X. SALIR / CERRAR SESIÓN (NUEVO INTENT)
+            // ------------------------------------------
+            case 'salir':
+            case 'despedida': {
+                return res.json({
+                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tu placa de mi sistema de forma segura. Si necesitas consultar otro vehículo, solo escríbeme "Hola" de nuevo. ✨`,
+                    outputContexts: [{
+                        name: `${sesionActual}/contexts/memoria_usuario`,
+                        lifespanCount: 0 // ¡MAGIA! Esto mata la memoria instantáneamente
+                    }]
                 });
             }
 
@@ -75,14 +90,13 @@ app.post('/webhook', async (req, res) => {
             // ------------------------------------------
             case 'ConsultarVehiculo':
             case 'consulta_tenencia': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para consultar tu tenencia? 🚗` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón. 🔎` });
 
                 const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
                 
-                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
                 const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
                     ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile explícitamente que NO debe pagar nada en este momento." 
                     : `Tiene un adeudo pendiente de ${adeudo}. Indícale amablemente que debe regularizar su pago.`;
@@ -99,14 +113,13 @@ app.post('/webhook', async (req, res) => {
             // 3. CONSULTAR REFRENDO
             // ------------------------------------------
             case 'refrendo': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías dar tu número de placa para revisar tu situación de refrendo? 🚗` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
 
                 const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
                 
-                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
                 const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
                     ? "Está AL CORRIENTE con su refrendo, su saldo es $0.00. Felicítalo y dile explícitamente que NO tiene que hacer ningún pago." 
                     : `Tiene un adeudo de refrendo de ${adeudo}. Indícale que debe realizar el pago para obtener su refrendo.`;
@@ -124,7 +137,7 @@ app.post('/webhook', async (req, res) => {
             // ------------------------------------------
             case 'hoy_no_circula':
             case 'ConsultarCircula': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, indícame tu número de placa para decirte cuándo no circulas. 🚗` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
@@ -134,7 +147,7 @@ app.post('/webhook', async (req, res) => {
                 const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
                 const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
-                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario} (NUNCA lo llames por su placa). Placa: ${placaGlobal}.
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.
                 REGLAS: Habla ÚNICAMENTE del programa Hoy No Circula. Indica EXPLÍCITAMENTE esto: "Tu vehículo descansa el día ${diaNoCircula}". Redacta en 2 párrafos cortos, usa emojis (📅, 🛑), sin asteriscos. No des definiciones largas.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
@@ -147,19 +160,18 @@ app.post('/webhook', async (req, res) => {
             // ------------------------------------------
             case 'consultar_multas':
             case 'ConsultarMultas': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para buscar tus infracciones? 🚓` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚓` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
 
                 const multas = sheetRes.data[0].multas || sheetRes.data[0].adeudo_multas || "$0.00";
 
-                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
                 const estadoMultas = (multas === "0" || multas === "$0.00" || multas.toLowerCase() === "sin multas" || multas.toLowerCase() === "sin adeudo") 
                     ? "No tiene ninguna infracción registrada en el sistema. Felicítalo por ser un excelente conductor." 
                     : `Tiene infracciones de tránsito por un total de ${multas}. Indícale amablemente que debe pagarlas para evitar recargos.`;
 
-                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario} (NUNCA uses la placa como nombre). Placa: ${placaGlobal}.
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.
                 REGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
@@ -204,26 +216,25 @@ app.post('/webhook', async (req, res) => {
                 mensajeCitas += `¿Deseas realizar alguna otra consulta? ✨`;
                 return res.json({ fulfillmentText: mensajeCitas, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
-                // ------------------------------------------
+
+            // ------------------------------------------
             // 8. CONSULTAR VERIFICACIÓN
             // ------------------------------------------
-            case 'verificación': // ¡Ojo! Dialogflow lo manda con acento
+            case 'verificación': 
             case 'verificacion':
             case 'ConsultarVerificacion': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para consultar tu verificación? 🍃` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🍃` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
 
-                // Buscamos la columna holograma que ya tienes en tu Excel
                 const holograma = sheetRes.data[0].holograma || "No registrado";
 
-                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
                 const estadoVerificacion = (holograma !== "No registrado" && holograma !== "") 
                     ? `El vehículo cuenta con holograma de verificación tipo '${holograma}'. Dile amablemente que está al corriente con sus emisiones vehiculares.` 
                     : `No hay registro de holograma vigente para este vehículo. Indícale que debe realizar su verificación vehicular lo antes posible para evitar multas ecológicas.`;
 
-                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario} (NUNCA uses la placa como nombre). Placa: ${placaGlobal}.
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.
                 REGLAS: Habla ÚNICAMENTE de la Verificación Vehicular (Emisiones contaminantes). INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. Redacta 2 párrafos cortos, usa emojis (🍃, 🚗), sin asteriscos.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
