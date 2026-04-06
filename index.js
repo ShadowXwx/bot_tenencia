@@ -18,6 +18,7 @@ app.post('/webhook', async (req, res) => {
 
         if (intentName === 'ConsultarVehiculo' || intentName === 'consulta_tenencia') {
             
+            // 1. Consulta a tu SheetDB
             const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placa}`);
             const datosAuto = sheetRes.data[0];
 
@@ -25,6 +26,7 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: `No encontré la placa ${placa} en el padrón vehicular.` });
             }
 
+            // 2. Lógica del Hoy No Circula
             const digito = parseInt(datosAuto.ultimo_digito);
             const reglas = {
                 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 
@@ -35,16 +37,20 @@ app.post('/webhook', async (req, res) => {
                                  ? "Circula diario" 
                                  : reglas[digito];
 
-            const prompt = `Actúa como un asistente virtual oficial de trámites vehiculares. Un ciudadano pregunta por su auto. Placa: ${placa}. 
+            const prompt = `Actúa como un asistente virtual oficial de trámites vehiculares en México. Un ciudadano pregunta por su auto. Placa: ${placa}. 
                             Adeudo Tenencia: ${datosAuto.adeudo_tenencia}. 
                             Días que no circula: ${diaNoCircula}. 
                             Responde de forma amable, clara, breve y si tiene adeudo indícale que debe regularizarse en el portal oficial de finanzas.`;
 
-            const aiRes = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-                model: "deepseek-chat",
+            // 3. Consulta a la IA (Corregido para usar GROQ)
+            const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: "llama3-8b-8192", // Modelo gratuito de Groq
                 messages: [{ role: "user", content: prompt }]
             }, {
-                headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` }
+                headers: { 
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
             return res.json({
@@ -54,8 +60,7 @@ app.post('/webhook', async (req, res) => {
 
         return res.json({ fulfillmentText: "Aún no tengo configurada la acción para este trámite en mi sistema." });
 
-    }  catch (error) {
-        // Obligamos a Node.js a mostrar el objeto completo en formato de texto
+    } catch (error) {
         if (error.response) {
             console.error("Error de la API:", JSON.stringify(error.response.data, null, 2));
         } else {
@@ -67,9 +72,6 @@ app.post('/webhook', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// SOLUCIÓN 2: Binding a '0.0.0.0'
-// En local usamos localhost, pero los servidores en la nube requieren escuchar
-// en todas las interfaces de red, por eso se añade '0.0.0.0'.
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor vial corriendo en el puerto ${PORT}`);
 });
