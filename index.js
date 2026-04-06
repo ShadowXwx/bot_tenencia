@@ -159,6 +159,42 @@ app.post('/webhook', async (req, res) => {
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
                 });
             }
+                // ------------------------------------------
+            // 5. CONSULTAR MULTAS (NUEVO INTENT)
+            // ------------------------------------------
+            case 'consultar_multas': {
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para buscar tus infracciones? 🚓` });
+
+                // Buscamos en el padrón vehicular principal (primera pestaña de tu Excel)
+                const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
+                if (!sheetRes.data || sheetRes.data.length === 0) {
+                    return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón vehicular. 🔎` });
+                }
+
+                const datosAuto = sheetRes.data[0];
+                
+                // Aquí buscamos una columna en tu Excel que se llame 'multas' o 'adeudo_multas'
+                // Si la celda está vacía, diremos "Sin multas registradas"
+                const adeudoMultas = datosAuto.multas || datosAuto.adeudo_multas || "Felicidades, no tienes multas registradas en este momento. ✅";
+
+                // Le pedimos a la IA que redacte la respuesta
+                const prompt = `Eres un asistente oficial de trámites vehiculares. El usuario se llama ${nombreUsuario}.
+                Placa: ${placaGlobal}.
+                Situación de multas o infracciones: ${adeudoMultas}.
+                REGLAS: Saluda por su nombre, redacta la respuesta en 2 o 3 párrafos cortos, usa emojis (🚓, 💸, ✅), NO uses asteriscos en lo absoluto. Sé claro y directo.`;
+
+                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                    model: "llama-3.1-8b-instant",
+                    messages: [{ role: "user", content: prompt }]
+                }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+
+                const textoLimpio = aiRes.data.choices[0].message.content.replace(/\*/g, "");
+
+                return res.json({
+                    fulfillmentText: textoLimpio,
+                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
+                });
+            }
 
             // ------------------------------------------
             // RESPUESTA POR DEFECTO
