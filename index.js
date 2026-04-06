@@ -204,6 +204,32 @@ app.post('/webhook', async (req, res) => {
                 mensajeCitas += `¿Deseas realizar alguna otra consulta? ✨`;
                 return res.json({ fulfillmentText: mensajeCitas, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
+                // ------------------------------------------
+            // 8. CONSULTAR VERIFICACIÓN
+            // ------------------------------------------
+            case 'verificación': // ¡Ojo! Dialogflow lo manda con acento
+            case 'verificacion':
+            case 'ConsultarVerificacion': {
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, ¿me podrías proporcionar tu número de placa para consultar tu verificación? 🍃` });
+
+                const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
+                if (!sheetRes.data || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal}. 🔎` });
+
+                // Buscamos la columna holograma que ya tienes en tu Excel
+                const holograma = sheetRes.data[0].holograma || "No registrado";
+
+                // LÓGICA EN JAVASCRIPT ANTES DE LA IA
+                const estadoVerificacion = (holograma !== "No registrado" && holograma !== "") 
+                    ? `El vehículo cuenta con holograma de verificación tipo '${holograma}'. Dile amablemente que está al corriente con sus emisiones vehiculares.` 
+                    : `No hay registro de holograma vigente para este vehículo. Indícale que debe realizar su verificación vehicular lo antes posible para evitar multas ecológicas.`;
+
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario} (NUNCA uses la placa como nombre). Placa: ${placaGlobal}.
+                REGLAS: Habla ÚNICAMENTE de la Verificación Vehicular (Emisiones contaminantes). INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. Redacta 2 párrafos cortos, usa emojis (🍃, 🚗), sin asteriscos.`;
+
+                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                
+                return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
+            }
 
             // ------------------------------------------
             // RESPUESTA POR DEFECTO
