@@ -91,7 +91,21 @@ app.post('/webhook', async (req, res) => {
                 const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
                 const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[digito];
 
-                const prompt = `Eres un asistente oficial de trámites vehiculares. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Adeudo: ${datosAuto.adeudo_tenencia}. No circula: ${diaNoCircula}. REGLAS: Saluda por su nombre, usa 3 párrafos cortos separados por saltos de línea, usa emojis, NO uses asteriscos. Responde de forma natural.`;
+                const prompt = `Eres un asistente de trámites vehiculares en México.
+                
+                DATOS DEL USUARIO (USALOS OBLIGATORIAMENTE):
+                - Nombre: ${nombreUsuario} (Salúdalo por su nombre, NUNCA lo llames por la placa).
+                - Placa: ${placaGlobal}
+                - Adeudo actual: ${datosAuto.adeudo_tenencia}
+                - Día que NO circula: ${diaNoCircula}
+
+                REGLAS ESTRICTAS DE RESPUESTA:
+                1. Tienes que decir EXPLÍCITAMENTE el día exacto que no circula (Ejemplo: "Tu auto no circula los días Lunes").
+                2. Menciona la cantidad de su adeudo de tenencia.
+                3. Usa 3 párrafos cortos.
+                4. Usa emojis amigables (🚗, 📅, 💰).
+                5. PROHIBIDO usar asteriscos.
+                6. Ve directo al grano, no des definiciones de qué es la tenencia o el hoy no circula.`;
 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                     model: "llama-3.1-8b-instant",
