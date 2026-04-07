@@ -15,6 +15,7 @@ const formatearNombre = (paramNombre) => {
     return typeof paramNombre === 'object' ? (paramNombre.name || null) : paramNombre;
 };
 
+// Guardamos en variables blindadas
 const generarMemoria = (session, nombre, placa) => {
     return [{
         name: `${session}/contexts/memoria_usuario`,
@@ -33,7 +34,10 @@ app.get('/', (req, res) => res.send('Servidor del Bot Vehicular Activo ✅'));
 
 app.post('/webhook', async (req, res) => {
     try {
-        if (!req.body || !req.body.queryResult) return res.status(400).send('Petición inválida');
+        // Validación de seguridad
+        if (!req.body || !req.body.queryResult) {
+            return res.status(400).send('Petición inválida');
+        }
 
         const intentName = req.body.queryResult.intent.displayName;
         const parametros = req.body.queryResult.parameters || {};
@@ -53,13 +57,17 @@ app.post('/webhook', async (req, res) => {
             return null;
         };
 
+        // 1. Intentamos sacar los datos del mensaje actual
         placaGlobal = extraerDato(parametros.placa);
         let nombreTemporal = formatearNombre(parametros.nombre);
         
+        // 2. Buscamos en el baúl blindado de memoria
         const memoria = contextos.find(c => c.name.includes('memoria_usuario'));
         if (memoria && memoria.parameters) {
             nombreUsuario = nombreTemporal || extraerDato(memoria.parameters.nombre_guardado) || "Ciudadano";
-            if (!placaGlobal) placaGlobal = extraerDato(memoria.parameters.placa_guardada);
+            if (!placaGlobal) {
+                placaGlobal = extraerDato(memoria.parameters.placa_guardada);
+            }
         } else if (nombreTemporal) {
             nombreUsuario = nombreTemporal;
         }
@@ -69,6 +77,9 @@ app.post('/webhook', async (req, res) => {
         // ==========================================
         switch (intentName) {
             
+            // ------------------------------------------
+            // 1. CAPTURAR NOMBRE Y PLACA INICIAL
+            // ------------------------------------------
             case 'capturar_nombre': {
                 const placaMsj = placaGlobal ? `He guardado tu placa ${placaGlobal} en mi memoria.` : "Aún no tengo tu placa, pero me la puedes dar más adelante.";
                 return res.json({
@@ -77,37 +88,48 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
+            // ------------------------------------------
+            // X. SALIR / CERRAR SESIÓN
+            // ------------------------------------------
             case 'salir':
             case 'despedida': {
                 return res.json({
-                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tus datos de mi sistema. Si necesitas consultar de nuevo, solo escríbeme "Hola". ✨`,
-                    outputContexts: [{ name: `${sesionActual}/contexts/memoria_usuario`, lifespanCount: 0 }]
+                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer ayudarte.\n\nHe borrado tus datos de mi sistema de forma segura. Si necesitas consultar de nuevo, solo escríbeme "Hola". ✨`,
+                    outputContexts: [{
+                        name: `${sesionActual}/contexts/memoria_usuario`,
+                        lifespanCount: 0 // Borra la memoria
+                    }]
                 });
             }
 
+            // ------------------------------------------
+            // 2. CONSULTAR TENENCIA
+            // ------------------------------------------
             case 'ConsultarVehiculo':
             case 'consulta_tenencia': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
 
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 
-                // PROTECCIÓN ANTI-COLAPSOS (Array.isArray)
                 if (!Array.isArray(sheetRes.data) || sheetRes.data.length === 0) {
-                    console.log("Respuesta de BD:", sheetRes.data);
-                    return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} o hubo un problema con la base de datos. 🔎` });
+                    return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, no encontré la placa ${placaGlobal} en el padrón. 🔎` });
                 }
 
                 const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
                 const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
-                    ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile que NO debe pagar nada." 
-                    : `Tiene un adeudo pendiente de ${adeudo}. Indícale que debe regularizar su pago.`;
+                    ? "Está AL CORRIENTE, su saldo es $0.00. Felicítalo y dile explícitamente que NO debe pagar nada en este momento." 
+                    : `Tiene un adeudo pendiente de ${adeudo}. Indícale amablemente que debe regularizar su pago.`;
                 
-                const prompt = `Eres un asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Tenencia. INSTRUCCIÓN ESTRICTA: ${estadoPago}. 2 párrafos cortos, emojis (💰, 🚗), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de la Tenencia Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (💰, 🚗), sin asteriscos.`;
+
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // 3. CONSULTAR REFRENDO
+            // ------------------------------------------
             case 'refrendo': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
 
@@ -116,15 +138,19 @@ app.post('/webhook', async (req, res) => {
 
                 const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
                 const estadoPago = (adeudo === "0" || adeudo === "$0.00" || adeudo.toLowerCase() === "sin adeudo") 
-                    ? "Está AL CORRIENTE con refrendo, saldo $0.00. Felicítalo y dile que NO debe pagar." 
-                    : `Tiene adeudo de refrendo de ${adeudo}. Indícale que debe pagar.`;
+                    ? "Está AL CORRIENTE con su refrendo, su saldo es $0.00. Felicítalo y dile explícitamente que NO tiene que hacer ningún pago." 
+                    : `Tiene un adeudo de refrendo de ${adeudo}. Indícale que debe realizar el pago para obtener su refrendo.`;
                 
-                const prompt = `Eres un asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Refrendo. INSTRUCCIÓN ESTRICTA: ${estadoPago}. 2 párrafos cortos, emojis (📄, ✅), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE del Refrendo Vehicular. INSTRUCCIÓN ESTRICTA: ${estadoPago}. Redacta 2 párrafos cortos, usa emojis (📄, ✅), sin asteriscos.`;
+
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // 4. PROGRAMA HOY NO CIRCULA
+            // ------------------------------------------
             case 'hoy_no_circula':
             case 'ConsultarCircula': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚗` });
@@ -136,12 +162,16 @@ app.post('/webhook', async (req, res) => {
                 const reglas = { 5: "Lunes", 6: "Lunes", 7: "Martes", 8: "Martes", 3: "Miércoles", 4: "Miércoles", 1: "Jueves", 2: "Jueves", 9: "Viernes", 0: "Viernes" };
                 const diaNoCircula = (datosAuto.holograma === "0" || datosAuto.holograma === "00") ? "Circula diario" : reglas[parseInt(datosAuto.ultimo_digito)];
 
-                const prompt = `Eres un asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Hoy No Circula. Indica EXPLÍCITAMENTE: "Tu vehículo descansa el día ${diaNoCircula}". 2 párrafos, emojis (📅, 🛑), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites vehiculares. El usuario es: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE del programa Hoy No Circula. Indica EXPLÍCITAMENTE esto: "Tu vehículo descansa el día ${diaNoCircula}". Redacta en 2 párrafos cortos, usa emojis (📅, 🛑), sin asteriscos. No des definiciones largas.`;
+
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // 5. CONSULTAR MULTAS
+            // ------------------------------------------
             case 'consultar_multas':
             case 'ConsultarMultas': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, no tengo registrada tu placa. ¿Me la podrías proporcionar? 🚓` });
@@ -151,15 +181,19 @@ app.post('/webhook', async (req, res) => {
 
                 const multas = sheetRes.data[0].multas || sheetRes.data[0].adeudo_multas || "$0.00";
                 const estadoMultas = (multas === "0" || multas === "$0.00" || multas.toLowerCase() === "sin multas" || multas.toLowerCase() === "sin adeudo") 
-                    ? "No tiene infracciones. Felicítalo por ser buen conductor." 
-                    : `Tiene infracciones por ${multas}. Indícale que debe pagarlas.`;
+                    ? "No tiene ninguna infracción registrada en el sistema. Felicítalo por ser un excelente conductor." 
+                    : `Tiene infracciones de tránsito por un total de ${multas}. Indícale amablemente que debe pagarlas para evitar recargos.`;
 
-                const prompt = `Eres un asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Infracciones. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. 2 párrafos cortos, emojis (🚓, 💸), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Infracciones de tránsito. INSTRUCCIÓN ESTRICTA: ${estadoMultas}. Redacta 2 párrafos cortos, usa emojis (🚓, 💸), sin asteriscos.`;
+
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // 6. AGENDAR CITA (CON WHATSAPP DE ULTRAMSG)
+            // ------------------------------------------
             case 'agendar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para poder agendar la cita. 🚗` });
 
@@ -168,14 +202,42 @@ app.post('/webhook', async (req, res) => {
                 const hora = parametros.time ? parametros.time.split('T')[1].substring(0, 5) : "Sin hora";
                 const idCita = "CITA-" + Math.random().toString(36).substr(2, 4).toUpperCase();
                 const fechaReg = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+                
+                // Extraemos y limpiamos el teléfono
+                let telefonoUsuario = parametros.telefono ? parametros.telefono.replace(/\D/g, '') : null;
 
+                // 1. Guardamos la cita en Google Sheets (SheetDB)
                 await axios.post(`${SHEETDB_URL}?sheet=Agenda_Citas`, {
                     data: [{ ID_Cita: idCita, Fecha_Registro: fechaReg, Nombre_Usuario: nombreUsuario, Placa_Vehiculo: placaGlobal, Tipo_Tramite: tramite, Fecha_Cita: fecha, Hora_Cita: hora, Estatus: "Pendiente" }]
                 });
 
-                return res.json({ fulfillmentText: `¡Excelente, ${nombreUsuario}! ✅\nTu cita quedó registrada.\n🆔 Folio: ${idCita}\n🚗 Placa: ${placaGlobal}\n📋 Trámite: ${tramite}\n📅 Fecha: ${fecha}\n⏰ Hora: ${hora}\n¡Nos vemos pronto! ✨`, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
+                // 2. Enviamos el WhatsApp usando la API de UltraMsg
+                if (telefonoUsuario && process.env.ULTRAMSG_INSTANCE) {
+                    try {
+                        if (telefonoUsuario.length === 10) telefonoUsuario = `+52${telefonoUsuario}`;
+
+                        const mensajeWhatsApp = `🚗 *Trámites Vehiculares Oficial*\n\n¡Hola *${nombreUsuario}*! 👋\nTu cita ha sido confirmada en nuestro sistema.\n\n🆔 *Folio:* ${idCita}\n🚗 *Placa:* ${placaGlobal}\n📋 *Trámite:* ${tramite}\n📅 *Fecha:* ${fecha}\n⏰ *Hora:* ${hora} hrs\n\n_Guarda este mensaje para el día de tu trámite._ ✨`;
+
+                        await axios.post(`https://api.ultramsg.com/$instance168916/messages/chat`, {
+                            token: veyiy2zux5953tfz,
+                            to: telefonoUsuario,
+                            body: mensajeWhatsApp
+                        });
+                        console.log(`✅ WhatsApp enviado con éxito a ${telefonoUsuario}`);
+                    } catch (err) {
+                        console.error("🚨 Error enviando WhatsApp:", err.message);
+                    }
+                }
+
+                return res.json({ 
+                    fulfillmentText: `¡Excelente, ${nombreUsuario}! ✅\n\nTu cita quedó registrada con el folio ${idCita}.\n\n📱 **¡Te acabo de enviar un comprobante oficial por WhatsApp al número que me diste!**\n\n¡Nos vemos pronto! ✨`, 
+                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) 
+                });
             }
 
+            // ------------------------------------------
+            // 7. CONSULTAR CITA EXISTENTE
+            // ------------------------------------------
             case 'consultar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tus citas. 🚗` });
 
@@ -190,6 +252,9 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: mensajeCitas + `¿Deseas realizar alguna otra consulta? ✨`, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // 8. CONSULTAR VERIFICACIÓN
+            // ------------------------------------------
             case 'verificación': 
             case 'verificacion':
             case 'ConsultarVerificacion': {
@@ -200,15 +265,19 @@ app.post('/webhook', async (req, res) => {
 
                 const holograma = sheetRes.data[0].holograma || "No registrado";
                 const estadoVerificacion = (holograma !== "No registrado" && holograma !== "") 
-                    ? `Vehículo con holograma '${holograma}'. Dile que está al corriente con emisiones.` 
-                    : `No hay registro de holograma vigente. Indícale que debe verificar pronto.`;
+                    ? `El vehículo cuenta con holograma de verificación tipo '${holograma}'. Dile amablemente que está al corriente con sus emisiones vehiculares.` 
+                    : `No hay registro de holograma vigente para este vehículo. Indícale que debe realizar su verificación vehicular lo antes posible para evitar multas ecológicas.`;
 
-                const prompt = `Eres un asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de Verificación. INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. 2 párrafos cortos, emojis (🍃, 🚗), sin asteriscos.`;
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}.\nREGLAS: Habla ÚNICAMENTE de la Verificación Vehicular (Emisiones contaminantes). INSTRUCCIÓN ESTRICTA: ${estadoVerificacion}. Redacta 2 párrafos cortos, usa emojis (🍃, 🚗), sin asteriscos.`;
+
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, ""), outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
+            // ------------------------------------------
+            // RESPUESTA POR DEFECTO
+            // ------------------------------------------
             default:
                 return res.json({ fulfillmentText: `Aún no tengo configurada la acción para el trámite '${intentName}'. ⚙️` });
         }
@@ -216,7 +285,7 @@ app.post('/webhook', async (req, res) => {
     } catch (error) {
         console.error("Error en Webhook:", error.message);
         
-        // ¡EL TRUCO DE DEPURACIÓN! Te manda el error directo al chat de Dialogflow
+        // Mensaje chismoso para depurar desde Dialogflow
         let mensajeChismoso = error.message;
         if (error.response && error.response.status === 429) mensajeChismoso = "Rate Limit (Esperar 1 min y reintentar)";
         if (error.response && error.response.status === 402) mensajeChismoso = "Límite gratis de base de datos agotado";
