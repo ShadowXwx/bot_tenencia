@@ -30,16 +30,15 @@ const generarMemoria = (session, nombre, placa) => {
     }];
 };
 
-// --- MENÚS DE NAVEGACIÓN (CONFIGURACIÓN DE OPCIONES) ---
-const LISTA_TRAMITES = "\n👉 *Tenencia*\n👉 *Multas*\n👉 *Agendar Cita*\n👉 *Consultar Cita*\n👉 *Verificación*";
-
-const MENU_BIENVENIDA = `\n\n¿Qué trámite deseas realizar hoy? Aquí tienes mis opciones:${LISTA_TRAMITES}`;
-const MENU_REINTENTAR = `\n\n¿Deseas realizar algún otro trámite? Estas son las opciones disponibles:${LISTA_TRAMITES}`;
+// --- MENÚS DE NAVEGACIÓN ACTUALIZADOS ---
+const OPCIONES_TEXTO = "\n💰 Tenencia\n🚓 Multas\n📅 Agendar Cita\n🔍 Consultar Cita\n🍃 Verificación";
+const MENU_BIENVENIDA = `\n\n¿En qué puedo ayudarte hoy? Estas son mis opciones:${OPCIONES_TEXTO}`;
+const MENU_REINTENTAR = `\n\n¿Deseas realizar otro trámite? Estas son mis opciones:${OPCIONES_TEXTO}`;
 
 // ==========================================
 // RUTAS DEL SERVIDOR
 // ==========================================
-app.get('/', (req, res) => res.send('Servidor Vehicular UNAM v3.1 ✅'));
+app.get('/', (req, res) => res.send('Servidor Vehicular UNAM v3.0 ✅'));
 
 app.post('/webhook', async (req, res) => {
     try {
@@ -74,7 +73,7 @@ app.post('/webhook', async (req, res) => {
         switch (intentName) {
             
             case 'capturar_nombre': {
-                const msjPlaca = placaGlobal ? `Placa ${placaGlobal} vinculada con éxito.` : "Aún no tengo tu placa registrada.";
+                const msjPlaca = placaGlobal ? `Placa ${placaGlobal} vinculada.` : "Aún no tengo tu placa registrada.";
                 return res.json({
                     fulfillmentText: `¡Mucho gusto, ${nombreUsuario}! 👋✨\n\n${msjPlaca}${MENU_BIENVENIDA}`,
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
@@ -83,14 +82,15 @@ app.post('/webhook', async (req, res) => {
 
             case 'consulta_tenencia':
             case 'ConsultarVehiculo': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para consultar. 🚗` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa. 🚗` });
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!Array.isArray(sheetRes.data) || sheetRes.data.length === 0) return res.json({ fulfillmentText: `No encontré la placa ${placaGlobal}. 🔎` });
 
                 const adeudo = sheetRes.data[0].adeudo_tenencia || "$0.00";
-                const estado = (adeudo === "0" || adeudo === "$0.00") ? "AL CORRIENTE" : `PAGO PENDIENTE DE ${adeudo}`;
+                const estado = (adeudo === "0" || adeudo === "$0.00") ? "AL CORRIENTE" : `DEBE ${adeudo}`;
                 
-                const prompt = `Asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Tenencia: ${estado}. Explica brevemente el estado. REGLA: No menciones otros servicios. 2 párrafos cortos, sin asteriscos.`;
+                // PROMPT RESTRINGIDO: Sin inventar servicios
+                const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Tenencia: ${estado}. Explica el estado de pago de forma directa. REGLA: No menciones estacionamientos, tránsito ni otros servicios. 2 párrafos cortos, sin asteriscos.`;
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
                 
                 return res.json({ 
@@ -108,7 +108,7 @@ app.post('/webhook', async (req, res) => {
                 const multas = sheetRes.data[0].multas || "$0.00";
                 const estado = (multas === "0" || multas === "$0.00") ? "SIN INFRACCIONES" : `ADEUDO DE ${multas}`;
 
-                const prompt = `Asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Multas: ${estado}. Explica brevemente. 2 párrafos cortos, sin asteriscos.`;
+                const prompt = `Asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Multas: ${estado}. Explica brevemente el estado de infracciones. REGLA: No ofrezcas otros servicios. 2 párrafos cortos, sin asteriscos.`;
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
 
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, "") + MENU_REINTENTAR, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
@@ -127,13 +127,13 @@ app.post('/webhook', async (req, res) => {
                     zona = typeof parametros.ubicacion === 'object' ? (parametros.ubicacion.city || "CDMX") : parametros.ubicacion;
                 }
                 const queryMaps = encodeURIComponent(`Verificentro cerca de ${zona}`);
-                const mapaLink = `http://googleusercontent.com/maps.google.com/6{queryMaps}`;
+                const mapaLink = `https://www.google.com/maps/search/${queryMaps}`;
 
-                const prompt = `Asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Holograma: ${holograma}. Explica emisiones. 2 párrafos cortos, sin asteriscos.`;
+                const prompt = `Asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Holograma: ${holograma}. Explica brevemente la situación de emisiones. REGLA: No inventes servicios. 2 párrafos cortos, sin asteriscos.`;
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
 
                 return res.json({ 
-                    fulfillmentText: `${aiRes.data.choices[0].message.content.replace(/\*/g, "")}\n\n📍 Mapa de centros en ${zona}: ${mapaLink}${MENU_REINTENTAR}`, 
+                    fulfillmentText: `${aiRes.data.choices[0].message.content.replace(/\*/g, "")}\n\n📍 Mapa en ${zona}: ${mapaLink}${MENU_REINTENTAR}`, 
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) 
                 });
             }
@@ -148,18 +148,18 @@ app.post('/webhook', async (req, res) => {
                     data: [{ ID_Cita: idCita, Fecha_Registro: new Date().toLocaleString(), Nombre_Usuario: nombreUsuario, Placa_Vehiculo: placaGlobal, Tipo_Tramite: tramite, Fecha_Cita: fecha, Estatus: "Pendiente" }]
                 });
 
-                return res.json({ fulfillmentText: `¡Listo ${nombreUsuario}! Tu cita ha sido agendada con el folio: ${idCita}. ✅${MENU_REINTENTAR}`, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
+                return res.json({ fulfillmentText: `¡Listo ${nombreUsuario}! Cita agendada con folio: ${idCita}. ✅${MENU_REINTENTAR}`, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
             case 'consultar_cita': {
-                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa. 🔍` });
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para buscar tus citas. 🔍` });
                 const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
                 
                 if (!Array.isArray(citaRes.data) || citaRes.data.length === 0) {
-                    return res.json({ fulfillmentText: `${nombreUsuario}, no tienes citas registradas para la placa ${placaGlobal}. ❌${MENU_REINTENTAR}` });
+                    return res.json({ fulfillmentText: `${nombreUsuario}, no encontré citas para la placa ${placaGlobal}. ❌${MENU_REINTENTAR}` });
                 }
 
-                let mensajeCitas = `¡Hola, ${nombreUsuario}! Aquí están tus citas agendadas:\n\n`;
+                let mensajeCitas = `¡Hola, ${nombreUsuario}! Encontré esto:\n\n`;
                 citaRes.data.forEach((cita, i) => {
                     mensajeCitas += `📌 CITA ${i + 1}:\n🆔 Folio: ${cita.ID_Cita}\n📋 Trámite: ${cita.Tipo_Tramite}\n📅 Fecha: ${cita.Fecha_Cita}\n⚙️ Estatus: ${cita.Estatus}\n\n`;
                 });
@@ -170,19 +170,19 @@ app.post('/webhook', async (req, res) => {
             case 'salir':
             case 'despedida': {
                 return res.json({
-                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer atenderte. Escribe "Hola" si necesitas algo más. ✨`,
+                    fulfillmentText: `¡Hasta luego, ${nombreUsuario}! 👋 Fue un placer atenderte. Vuelve pronto. ✨`,
                     outputContexts: [{ name: `${sesionActual}/contexts/memoria_usuario`, lifespanCount: 0 }]
                 });
             }
 
             default:
-                return res.json({ fulfillmentText: `Lo siento, esa opción no la reconozco.${MENU_BIENVENIDA}` });
+                return res.json({ fulfillmentText: `Esa opción no la tengo configurada. ⚙️${MENU_BIENVENIDA}` });
         }
     } catch (error) {
         console.error("Error:", error.message);
-        return res.json({ fulfillmentText: `🚨 Hubo un error técnico. ¿Deseas intentar otro trámite?${MENU_BIENVENIDA}` });
+        return res.json({ fulfillmentText: `🚨 Problema técnico. ¿Intentamos con otro trámite?${MENU_BIENVENIDA}` });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor UNAM activo puerto ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor activo puerto ${PORT}`));
