@@ -167,6 +167,28 @@ app.post('/webhook', async (req, res) => {
                     outputContexts: [{ name: `${sesionActual}/contexts/memoria_usuario`, lifespanCount: 0 }]
                 });
             }
+                // 7. CONSULTAR CITA EXISTENTE
+            case 'consultar_cita': {
+                if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, dime tu placa para buscar tus citas. 🚗` });
+
+                // Buscamos en la pestaña específica de Agenda_Citas
+                const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
+                
+                if (!Array.isArray(citaRes.data) || citaRes.data.length === 0) {
+                    return res.json({ fulfillmentText: `${nombreUsuario}, no encontré citas programadas para la placa ${placaGlobal}. ❌${MENU_REINTENTAR}` });
+                }
+
+                let mensajeCitas = `¡Hola de nuevo, ${nombreUsuario}! 🔍\nEncontré estas citas para tu vehículo (${placaGlobal}):\n\n`;
+                
+                citaRes.data.forEach((cita, index) => {
+                    mensajeCitas += `📌 CITA ${index + 1}:\n🆔 Folio: ${cita.ID_Cita || "N/A"}\n📋 Trámite: ${cita.Tipo_Tramite || "N/A"}\n📅 Fecha: ${cita.Fecha_Cita || "N/A"}\n⚙️ Estatus: ${cita.Estatus || "Pendiente"}\n\n`;
+                });
+
+                return res.json({ 
+                    fulfillmentText: mensajeCitas + MENU_REINTENTAR, 
+                    outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) 
+                });
+            }
 
             default:
                 return res.json({ fulfillmentText: `Acción '${intentName}' no reconocida. ⚙️${MENU_BIENVENIDA}` });
