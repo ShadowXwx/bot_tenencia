@@ -1,11 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const app = express();
+
 app.use(express.json());
 
-// Configuración de APIs (Cámbialas por tus llaves reales)
-const SHEETDB_URL = "https://sheetdb.io/api/v1/n5w7uq6z7cy4m";
-const GROQ_API_KEY = "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";
+const SHEETDB_URL = process.env.SHEETDB_URL;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 // ==========================================
 // FUNCIONES DE AYUDA (HELPERS)
@@ -214,12 +215,13 @@ app.post('/webhook', async (req, res) => {
                 // 2. Enviamos el WhatsApp usando la API de UltraMsg
                 if (telefonoUsuario && process.env.ULTRAMSG_INSTANCE) {
                     try {
+                        // Agregamos el prefijo de México (+52) si el usuario mandó 10 dígitos
                         if (telefonoUsuario.length === 10) telefonoUsuario = `+52${telefonoUsuario}`;
 
                         const mensajeWhatsApp = `🚗 *Trámites Vehiculares Oficial*\n\n¡Hola *${nombreUsuario}*! 👋\nTu cita ha sido confirmada en nuestro sistema.\n\n🆔 *Folio:* ${idCita}\n🚗 *Placa:* ${placaGlobal}\n📋 *Trámite:* ${tramite}\n📅 *Fecha:* ${fecha}\n⏰ *Hora:* ${hora} hrs\n\n_Guarda este mensaje para el día de tu trámite._ ✨`;
 
-                        await axios.post(`https://api.ultramsg.com/$instance168916/messages/chat`, {
-                            token: veyiy2zux5953tfz,
+                        await axios.post(`https://api.ultramsg.com/${process.env.ULTRAMSG_INSTANCE}/messages/chat`, {
+                            token: process.env.ULTRAMSG_TOKEN,
                             to: telefonoUsuario,
                             body: mensajeWhatsApp
                         });
