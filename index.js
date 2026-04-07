@@ -122,23 +122,41 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: `¡Listo ${nombreUsuario}! Folio: ${idCita}. Te envié un WhatsApp. ✅${MENU_REINTENTAR}`, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
-            // 4. VERIFICACIÓN + GOOGLE MAPS GRATIS
+            // 4. VERIFICACIÓN + GOOGLE MAPS (CORREGIDO)
             case 'verificacion':
             case 'verificación':
             case 'ConsultarVerificacion': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa. 🍃` });
+                
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!Array.isArray(sheetRes.data) || sheetRes.data.length === 0) return res.json({ fulfillmentText: `No encontré la placa ${placaGlobal}. 🔎` });
 
                 const holograma = sheetRes.data[0].holograma || "No registrado";
-                const zona = parametros.ubicacion || "CDMX";
-                const mapaLink = `http://googleusercontent.com/maps.google.com/5{encodeURIComponent("Verificentro cerca de " + zona)}`;
+                
+                // --- CORRECCIÓN DE UBICACIÓN ---
+                // Extraemos el texto si viene como objeto de Dialogflow
+                let zona = "CDMX";
+                if (parametros.ubicacion) {
+                    zona = typeof parametros.ubicacion === 'object' ? 
+                           (parametros.ubicacion.city || parametros.ubicacion.street_address || JSON.stringify(parametros.ubicacion)) : 
+                           parametros.ubicacion;
+                }
 
-                const prompt = `Asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Holograma: ${holograma}. Explica brevemente. 2 párrafos, emojis, sin asteriscos.`;
-                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+                // --- CORRECCIÓN DE ENLACE (Usamos Template Strings ``) ---
+                const queryMaps = encodeURIComponent(`Verificentro cerca de ${zona}`);
+                const mapaLink = `https://www.google.com/maps/search/${queryMaps}`;
+
+                const prompt = `Asistente vehicular. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. Holograma: ${holograma}. Explica brevemente su situación de verificación. 2 párrafos cortos, emojis, sin asteriscos.`;
+                
+                const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { 
+                    model: "llama-3.1-8b-instant", 
+                    messages: [{ role: "user", content: prompt }] 
+                }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
+
+                const respuestaIA = aiRes.data.choices[0].message.content.replace(/\*/g, "");
 
                 return res.json({ 
-                    fulfillmentText: `${aiRes.data.choices[0].message.content.replace(/\*/g, "")}\n\n📍 Mapa en ${zona}: ${mapaLink}${MENU_REINTENTAR}`, 
+                    fulfillmentText: `${respuestaIA}\n\n📍 Mapa en ${zona}: ${mapaLink}${MENU_REINTENTAR}`, 
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) 
                 });
             }
