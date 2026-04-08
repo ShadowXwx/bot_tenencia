@@ -40,7 +40,7 @@ const generarMemoria = (session, nombre, placa) => {
 };
 
 // --- MENÚS DE NAVEGACIÓN ---
-const OPCIONES_TEXTO = "\n💰 Tenencia\n🚓 Multas\n💳 ¿Dónde Pagar?\n📅 Agendar Cita\n🔍 Consultar Cita\n🍃 Verificación";
+const OPCIONES_TEXTO = "\n💰 Tenencia\n🚓 Multas\n📅 Agendar Cita\n🔍 Consultar Cita\n🍃 Verificación";
 const MENU_BIENVENIDA = `\n\n¿En qué puedo ayudarte hoy? Estas son mis opciones:${OPCIONES_TEXTO}`;
 const MENU_REINTENTAR = `\n\n¿Deseas realizar otro trámite? Estas son mis opciones:${OPCIONES_TEXTO}`;
 
