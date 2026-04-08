@@ -38,7 +38,7 @@ const MENU_REINTENTAR = `\n\n¿Deseas realizar otro trámite? Estas son mis opci
 // ==========================================
 // RUTAS DEL SERVIDOR
 // ==========================================
-app.get('/', (req, res) => res.send('Servidor Vehicular UNAM v4.0 (Final) ✅'));
+app.get('/', (req, res) => res.send('Servidor Vehicular UNAM con Fallback IA ✅'));
 
 app.post('/webhook', async (req, res) => {
     try {
@@ -48,6 +48,9 @@ app.post('/webhook', async (req, res) => {
         const parametros = req.body.queryResult.parameters || {};
         const contextos = req.body.queryResult.outputContexts || [];
         const sesionActual = req.body.session;
+        
+        // Atrapamos exactamente lo que el usuario escribió
+        const textoUsuario = req.body.queryResult.queryText || "";
 
         let nombreUsuario = "Ciudadano";
         let placaGlobal = null;
@@ -72,9 +75,6 @@ app.post('/webhook', async (req, res) => {
 
         switch (intentName) {
             
-            // ------------------------------------------
-            // 1. SALUDO INICIAL
-            // ------------------------------------------
             case 'capturar_nombre': {
                 const msjPlaca = placaGlobal ? `Placa ${placaGlobal} vinculada.` : "Aún no tengo tu placa registrada.";
                 return res.json({
@@ -83,9 +83,6 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
-            // ------------------------------------------
-            // 2. CONSULTAR TENENCIA
-            // ------------------------------------------
             case 'consulta_tenencia':
             case 'ConsultarVehiculo': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa. 🚗` });
@@ -104,9 +101,6 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
-            // ------------------------------------------
-            // 3. CONSULTAR MULTAS
-            // ------------------------------------------
             case 'consultar_multas':
             case 'ConsultarMultas': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa. 🚓` });
@@ -122,9 +116,6 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: aiRes.data.choices[0].message.content.replace(/\*/g, "") + MENU_REINTENTAR, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
-            // ------------------------------------------
-            // 4. VERIFICACIÓN Y GOOGLE MAPS
-            // ------------------------------------------
             case 'verificacion':
             case 'verificación':
             case 'ConsultarVerificacion': {
@@ -139,7 +130,6 @@ app.post('/webhook', async (req, res) => {
                     zona = typeof parametros.ubicacion === 'object' ? (parametros.ubicacion.city || "CDMX") : parametros.ubicacion;
                 }
                 
-                // Generamos un enlace estándar y gratuito de búsqueda en Google Maps
                 const queryMaps = encodeURIComponent(`Verificentro cerca de ${zona}`);
                 const mapaLink = `https://www.google.com/maps/search/?api=1&query=${queryMaps}`;
 
@@ -152,9 +142,6 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
-            // ------------------------------------------
-            // 5. AGENDAR CITA (CON VALIDACIONES Y WA)
-            // ------------------------------------------
             case 'agendar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para agendar. 🚗` });
 
@@ -167,26 +154,22 @@ app.post('/webhook', async (req, res) => {
                     return res.json({ fulfillmentText: `Para agendar, necesito que me indiques una fecha y hora específica. ✨` });
                 }
 
-                // --- A) VALIDACIÓN: Fines de semana ---
                 const fechaObj = new Date(fecha + 'T00:00:00');
                 const diaSemana = fechaObj.getDay();
                 if (diaSemana === 0 || diaSemana === 6) {
                     return res.json({ fulfillmentText: `Lo siento ${nombreUsuario}, el ${fecha} es fin de semana y no laboramos. 🏥\n\nPor favor, elige un día de Lunes a Viernes.${MENU_REINTENTAR}` });
                 }
 
-                // --- B) VALIDACIÓN: Días Feriados ---
                 const feriados = ['2026-01-01', '2026-02-02', '2026-03-16', '2026-05-01', '2026-09-16', '2026-11-16', '2026-12-25'];
                 if (feriados.includes(fecha)) {
                     return res.json({ fulfillmentText: `El ${fecha} es día feriado oficial. Nuestras oficinas estarán cerradas. 🚩\n\n¿Te gustaría intentar con otra fecha?${MENU_REINTENTAR}` });
                 }
 
-                // --- C) VALIDACIÓN: Colisión de horarios ---
                 const consultaConflicto = await axios.get(`${SHEETDB_URL}/search?Fecha_Cita=${fecha}&Hora_Cita=${hora}&sheet=Agenda_Citas`);
                 if (Array.isArray(consultaConflicto.data) && consultaConflicto.data.length > 0) {
                     return res.json({ fulfillmentText: `¡Ups! Ya existe una cita agendada para el ${fecha} a las ${hora} hrs. 🕒\n\n¿Podrías elegir un horario diferente?${MENU_REINTENTAR}` });
                 }
 
-                // --- D) GUARDADO EXITOSO ---
                 const idCita = "CITA-" + Math.random().toString(36).substr(2, 4).toUpperCase();
                 await axios.post(`${SHEETDB_URL}?sheet=Agenda_Citas`, {
                     data: [{ 
@@ -201,7 +184,6 @@ app.post('/webhook', async (req, res) => {
                     }]
                 });
 
-                // --- E) ENVÍO DE WHATSAPP ---
                 let notaWhatsApp = "";
                 if (telefono && process.env.ULTRAMSG_INSTANCE) {
                     try {
@@ -220,9 +202,6 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
-            // ------------------------------------------
-            // 6. CONSULTAR MIS CITAS
-            // ------------------------------------------
             case 'consultar_cita': {
                 if (!placaGlobal) return res.json({ fulfillmentText: `${nombreUsuario}, necesito tu placa para buscar tus citas. 🔍` });
                 const citaRes = await axios.get(`${SHEETDB_URL}/search?Placa_Vehiculo=${placaGlobal}&sheet=Agenda_Citas`);
@@ -239,9 +218,6 @@ app.post('/webhook', async (req, res) => {
                 return res.json({ fulfillmentText: mensajeCitas + MENU_REINTENTAR, outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) });
             }
 
-            // ------------------------------------------
-            // 7. DESPEDIDA Y LIMPIEZA
-            // ------------------------------------------
             case 'salir':
             case 'despedida': {
                 return res.json({
@@ -250,11 +226,41 @@ app.post('/webhook', async (req, res) => {
                 });
             }
 
-            default:
-                return res.json({ fulfillmentText: `Esa opción no la tengo configurada. ⚙️${MENU_BIENVENIDA}` });
+            // ------------------------------------------
+            // 8. FALLBACK INTELIGENTE (RESPUESTA IA ABIERTA)
+            // ------------------------------------------
+            default: {
+                try {
+                    // Si el intent no existe, mandamos la pregunta cruda a la IA
+                    const promptFallback = `Eres un asistente virtual de trámites vehiculares. El usuario (${nombreUsuario}) te pregunta: "${textoUsuario}".
+                    REGLAS STRICTAS:
+                    1. Si la pregunta está relacionada con autos, conducción, refacciones, seguros, leyes de tránsito o mecánica básica, respóndela amablemente con tus conocimientos generales.
+                    2. Si la pregunta NO tiene relación con vehículos (ej. recetas, política, tareas, chistes), dile cortésmente que eres un bot especializado en temas vehiculares y no puedes ayudar con eso.
+                    3. Sé breve y directo (máximo 2 párrafos cortos). Usa emojis. No ofrezcas servicios ficticios.`;
+
+                    const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { 
+                        model: "llama-3.1-8b-instant", 
+                        messages: [{ role: "user", content: promptFallback }] 
+                    }, { 
+                        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } 
+                    });
+
+                    const respuestaLibre = aiRes.data.choices[0].message.content.replace(/\*/g, "");
+
+                    return res.json({ 
+                        // Adjuntamos el menú de bienvenida para regresar al usuario al camino correcto
+                        fulfillmentText: `${respuestaLibre}${MENU_BIENVENIDA}`, 
+                        outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal)
+                    });
+
+                } catch (error) {
+                    console.error("Error en Fallback IA:", error.message);
+                    return res.json({ fulfillmentText: `Esa opción no la tengo configurada. ⚙️${MENU_BIENVENIDA}` });
+                }
+            }
         }
     } catch (error) {
-        console.error("Error:", error.message);
+        console.error("Error General:", error.message);
         return res.json({ fulfillmentText: `🚨 Problema técnico. ¿Intentamos con otro trámite?${MENU_BIENVENIDA}` });
     }
 });
