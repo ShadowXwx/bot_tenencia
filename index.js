@@ -140,7 +140,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // ------------------------------------------
-            // 4. CONSULTAR MULTAS
+            // 4. CONSULTAR MULTAS (A PRUEBA DE ERRORES)
             // ------------------------------------------
             case 'consultar_multas':
             case 'ConsultarMultas': {
@@ -148,21 +148,25 @@ app.post('/webhook', async (req, res) => {
                 const sheetRes = await axios.get(`${SHEETDB_URL}/search?placa=${placaGlobal}`);
                 if (!Array.isArray(sheetRes.data) || sheetRes.data.length === 0) return res.json({ fulfillmentText: `Placa no encontrada.` });
 
-                const multas = sheetRes.data[0].multas || "$0.00";
+                const filaDatos = sheetRes.data[0];
+                
+                // Buscamos la columna en todas sus posibles variantes
+                const multas = filaDatos.multas || filaDatos.Multas || filaDatos.adeudo_multas || filaDatos.Adeudo_Multas || "$0.00";
+                
                 const strMultas = multas.toString().toLowerCase().trim();
                 
                 // Verificamos si realmente hay multas
                 const tieneMultas = (strMultas !== "0" && strMultas !== "$0.00" && strMultas !== "sin multas" && strMultas !== "sin adeudo");
                 
                 const instruccion = tieneMultas 
-                    ? `El usuario tiene infracciones de tránsito por un total de ${multas}. Indícale que debe pagarlas.` 
+                    ? `El usuario tiene infracciones de tránsito por un total de $${multas}. Indícale que debe pagarlas.` 
                     : `El usuario NO tiene ninguna infracción registrada (Saldo $0.00). Felicítalo por ser un buen conductor.`;
 
                 const msjPago = tieneMultas ? `\n\n💸 Paga tus multas con tu línea de captura aquí:\n🌐 ${LINKS_PAGO.CDMX}` : "";
 
                 const prompt = `Eres un asistente de trámites. Usuario: ${nombreUsuario}. Placa: ${placaGlobal}. 
                 INSTRUCCIÓN ESTRICTA: ${instruccion}
-                REGLAS: No ofrezcas otros servicios, no inventes códigos de infracción ambientales ni de limpieza. 2 párrafos cortos, sin asteriscos.`;
+                REGLAS: No ofrezcas otros servicios, no inventes códigos de infracción. 2 párrafos cortos, sin asteriscos.`;
                 
                 const aiRes = await axios.post('https://api.groq.com/openai/v1/chat/completions', { model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }] }, { headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` } });
 
@@ -171,7 +175,6 @@ app.post('/webhook', async (req, res) => {
                     outputContexts: generarMemoria(sesionActual, nombreUsuario, placaGlobal) 
                 });
             }
-
             // ------------------------------------------
             // 5. VERIFICACIÓN Y GOOGLE MAPS
             // ------------------------------------------
